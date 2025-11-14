@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+
+# Firebase Admin SDK - NO subir a git por seguridad
+*-firebase-adminsdk-*.json
+firebase-adminsdk-*.json
