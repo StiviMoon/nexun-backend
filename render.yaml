@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: nexun-backend
+    env: node
+    buildCommand: pnpm install && pnpm run build
+    startCommand: pnpm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        fromService:
+          type: web
+          name: nexun-backend
+          property: port
+
