@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Colección de perfiles de usuario
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Reglas para salas de chat
+    match /rooms/{roomId} {
+      // Cualquier usuario autenticado puede leer salas públicas (group/channel)
+      allow read: if request.auth != null && 
+        (resource.data.type == 'group' || 
+         resource.data.type == 'channel' || 
+         request.auth.uid in resource.data.participants);
+      
+      // Solo el creador puede crear salas
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.createdBy;
+      
+      // Solo participantes pueden actualizar (para agregar participantes, etc.)
+      allow update: if request.auth != null && 
+        (request.auth.uid in resource.data.participants || 
+         request.auth.uid == resource.data.createdBy);
+    }
+    
+    // Reglas para mensajes
+    match /messages/{messageId} {
+      // Solo participantes de la sala pueden leer mensajes
+      allow read: if request.auth != null;
+      
+      // Solo usuarios autenticados pueden crear mensajes
+      // El backend valida que sean participantes
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.senderId;
+      
+      // Solo el autor puede actualizar/eliminar sus mensajes
+      allow update, delete: if request.auth != null && 
+        request.auth.uid == resource.data.senderId;
+    }
+
+    // Reglas por defecto: todo lo demás se bloquea
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
