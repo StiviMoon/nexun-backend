@@ -1,246 +1,192 @@
-# Nexun Backend API
+# Nexun Backend - Microservices Architecture
 
-Backend API para autenticación de Nexun usando Firebase Admin SDK.
+Real-time video conferencing and chat backend built with a clean, scalable microservices architecture.
 
-## Características
+## 🚀 Quick Start
 
-- Autenticación con email/password
-- Autenticación con Google
-- Verificación de tokens Firebase
-- Gestión de perfiles de usuario
-- Guardado de perfiles en Firestore
+### Prerequisites
 
-## Requisitos Previos
+- Node.js 18+
+- npm or yarn
+- Firebase project configured
 
-- Node.js 18 o superior
-- npm o pnpm
-- Cuenta de Firebase con proyecto configurado
-- Credenciales de Firebase Admin SDK (service account)
+### Installation
 
-## Configuración
-
-1. **Instalar dependencias:**
 ```bash
 npm install
-# o
-pnpm install
 ```
 
-2. **Configurar variables de entorno:**
-Copia el archivo `.env.example` a `.env` y completa las variables:
+### Configuration
+
+Create a `.env` file in the root directory:
 
 ```env
-PORT=3001
-NODE_ENV=development
+# Firebase Configuration
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_CLIENT_EMAIL=your-client-email
+FIREBASE_PRIVATE_KEY=your-private-key
 
-# Firebase Admin SDK Configuration
-FIREBASE_PROJECT_ID=tu-project-id
-FIREBASE_CLIENT_EMAIL=tu-service-account@tu-project.iam.gserviceaccount.com
-FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\nTu clave privada aquí\n-----END PRIVATE KEY-----\n
-
-# CORS Configuration
+# CORS
 CORS_ORIGIN=http://localhost:3000
+
+# Service Ports
+GATEWAY_PORT=3000
+AUTH_SERVICE_PORT=3001
+CHAT_SERVICE_PORT=3002
+VIDEO_SERVICE_PORT=3003
+
+# Service URLs
+AUTH_SERVICE_URL=http://localhost:3001
+CHAT_SERVICE_URL=http://localhost:3002
+VIDEO_SERVICE_URL=http://localhost:3003
 ```
 
-### Obtener credenciales de Firebase Admin SDK
+### Running
 
-1. Ve a la [Consola de Firebase](https://console.firebase.google.com/)
-2. Selecciona tu proyecto
-3. Ve a **Configuración del proyecto** > **Cuentas de servicio**
-4. Haz clic en **Generar nueva clave privada**
-5. Descarga el archivo JSON
-6. Extrae los siguientes valores del JSON:
-   - `project_id` → `FIREBASE_PROJECT_ID`
-   - `client_email` → `FIREBASE_CLIENT_EMAIL`
-   - `private_key` → `FIREBASE_PRIVATE_KEY` (mantén los `\n` literales)
-
-## Desarrollo
-
+**Development:**
 ```bash
 npm run dev
-# o
-pnpm dev
 ```
 
-El servidor estará disponible en `http://localhost:3001`
-
-## Producción
-
+**Production:**
 ```bash
 npm run build
-npm start
+npm run start
 ```
 
-## Endpoints de la API
-
-### POST /auth/register
-Registra un nuevo usuario con email y contraseña.
-
-**Request:**
-```json
-{
-  "email": "usuario@example.com",
-  "password": "contraseña123",
-  "name": "Nombre del Usuario" // opcional
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "user": {
-    "uid": "user-id",
-    "email": "usuario@example.com",
-    "displayName": "Nombre del Usuario",
-    "photoURL": null,
-    "providerIds": ["password"],
-    "emailVerified": false,
-    "createdAt": "2024-01-01T00:00:00.000Z",
-    "updatedAt": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-### POST /auth/login
-Inicia sesión con email y contraseña.
-
-**Request:**
-```json
-{
-  "email": "usuario@example.com",
-  "password": "contraseña123"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "token": "custom-token-here"
-}
-```
-
-### POST /auth/google
-Autentica con Google usando un token ID de Firebase.
-
-**Request:**
-```json
-{
-  "idToken": "firebase-id-token"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "user": {
-    "uid": "user-id",
-    "email": "usuario@gmail.com",
-    "displayName": "Nombre del Usuario",
-    "photoURL": "https://...",
-    "providerIds": ["google.com"],
-    "emailVerified": true,
-    "createdAt": "2024-01-01T00:00:00.000Z",
-    "updatedAt": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-### POST /auth/verify
-Verifica un token de Firebase y devuelve el perfil del usuario.
-
-**Request:**
-```json
-{
-  "idToken": "firebase-id-token"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "user": {
-    "uid": "user-id",
-    "email": "usuario@example.com",
-    "displayName": "Nombre del Usuario",
-    "photoURL": null,
-    "providerIds": ["password"],
-    "emailVerified": false,
-    "createdAt": "2024-01-01T00:00:00.000Z",
-    "updatedAt": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-### POST /auth/logout
-Cierra la sesión del usuario.
-
-**Headers:**
-```
-Authorization: Bearer firebase-id-token
-```
-
-**Response:**
-```json
-{
-  "success": true
-}
-```
-
-### GET /auth/me
-Obtiene el perfil del usuario actual.
-
-**Headers:**
-```
-Authorization: Bearer firebase-id-token
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "user": {
-    "uid": "user-id",
-    "email": "usuario@example.com",
-    "displayName": "Nombre del Usuario",
-    "photoURL": null,
-    "providerIds": ["password"],
-    "emailVerified": false,
-    "createdAt": "2024-01-01T00:00:00.000Z",
-    "updatedAt": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-## Estructura del Proyecto
+## 📁 Project Structure
 
 ```
 nexun-backend/
-├── src/
-│   ├── config/
-│   │   └── firebase.ts          # Configuración de Firebase Admin
-│   ├── middleware/
-│   │   └── authMiddleware.ts    # Middleware de autenticación
-│   ├── routes/
-│   │   └── authRoutes.ts        # Rutas de autenticación
-│   ├── services/
-│   │   └── authService.ts       # Lógica de negocio de autenticación
-│   ├── types/
-│   │   └── auth.ts              # Tipos TypeScript
-│   └── index.ts                 # Punto de entrada de la aplicación
-├── .env.example                 # Ejemplo de variables de entorno
-├── package.json
-├── tsconfig.json
-└── README.md
+├── shared/                    # Shared code
+│   ├── config/               # Firebase configuration
+│   ├── types/                # TypeScript types
+│   ├── middleware/           # Shared middleware
+│   └── utils/                # Utilities
+│
+├── services/
+│   ├── api-gateway/          # API Gateway (port 3000)
+│   ├── auth-service/         # Authentication (port 3001)
+│   ├── chat-service/         # Real-time chat (port 3002)
+│   └── video-service/        # Video conferencing (port 3003)
+│
+└── package.json
 ```
 
-## Notas Importantes
+## 🔌 Services
 
-- El frontend sigue usando Firebase Client SDK para obtener tokens de autenticación
-- El backend usa Firebase Admin SDK para verificar tokens y gestionar usuarios
-- Los perfiles de usuario se guardan automáticamente en Firestore
-- Las contraseñas nunca se envían al backend después de la autenticación inicial
+### API Gateway (Port 3000)
+- Entry point for all client requests
+- Routes requests to appropriate microservices
+- **Swagger**: `services/api-gateway/swagger.json`
 
+### Auth Service (Port 3001)
+- User registration and authentication
+- Google OAuth support
+- Token verification
+- **Swagger**: `services/auth-service/swagger.json`
+- **Endpoints**: `/api/auth/*`
+
+### Chat Service (Port 3002)
+- Real-time chat with Socket.IO
+- Room management
+- Message history
+- **Swagger**: `services/chat-service/swagger.json`
+- **WebSocket**: `ws://localhost:3002`
+
+### Video Service (Port 3003)
+- Video conferencing with WebRTC
+- Screen sharing
+- Audio/Video controls
+- **Swagger**: `services/video-service/swagger.json`
+- **WebSocket**: `ws://localhost:3003`
+
+## 📚 Documentation
+
+### API Documentation (Swagger)
+
+**View all API docs in your browser:**
+
+1. Start the API Gateway: `npm run dev:gateway`
+2. Visit: **http://localhost:3000/api-docs**
+
+This provides interactive Swagger UI for all services:
+- **API Gateway**: http://localhost:3000/api-docs/gateway
+- **Auth Service**: http://localhost:3000/api-docs/auth
+- **Chat Service**: http://localhost:3000/api-docs/chat
+- **Video Service**: http://localhost:3000/api-docs/video
+
+**Swagger JSON files:**
+- `services/auth-service/swagger.json`
+- `services/chat-service/swagger.json`
+- `services/video-service/swagger.json`
+- `services/api-gateway/swagger.json`
+
+### Code Documentation (JSDoc)
+
+All services use JSDoc for inline documentation. Key functions include:
+- Parameter descriptions
+- Return types
+- Error handling
+- Usage examples
+
+See `DOCUMENTATION.md` for more details.
+
+## 🧪 Testing
+
+### Postman Collection
+
+Import `postman_collection.json` into Postman for quick API testing.
+
+### Health Checks
+
+```bash
+# Gateway
+curl http://localhost:3000/health
+
+# Auth Service
+curl http://localhost:3001/health
+
+# Chat Service
+curl http://localhost:3002/health
+
+# Video Service
+curl http://localhost:3003/health
+```
+
+## 📝 Available Scripts
+
+- `npm run dev` - Run all services in development mode
+- `npm run dev:gateway` - Run only API Gateway
+- `npm run dev:auth` - Run only Auth Service
+- `npm run dev:chat` - Run only Chat Service
+- `npm run dev:video` - Run only Video Service
+- `npm run build` - Build all services
+- `npm run start` - Run all services in production mode
+- `npm run lint` - Lint all TypeScript files
+
+## 🔐 Authentication
+
+All services use Firebase Auth for authentication:
+
+- **REST API**: Include `Authorization: Bearer <token>` header
+- **WebSocket**: Pass token in connection: `auth: { token: '<token>' }`
+
+## 📖 Additional Documentation
+
+- **Architecture Details**: See `ARCHITECTURE.md`
+- **API Testing**: See `POSTMAN_GUIDE.md`
+
+## 🛠️ Tech Stack
+
+- **Runtime**: Node.js
+- **Framework**: Express.js
+- **Real-time**: Socket.IO
+- **Database**: Firebase Firestore
+- **Authentication**: Firebase Admin SDK
+- **Language**: TypeScript
+- **Validation**: Zod
+
+## 📄 License
+
+MIT

@@ -1,0 +1,154 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Nexun API Gateway",
+    "version": "1.0.0",
+    "description": "API Gateway for Nexun microservices architecture. Routes requests to appropriate microservices."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "API Gateway"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Gateway health check",
+        "tags": ["Health"],
+        "responses": {
+          "200": {
+            "description": "Gateway and all services are healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "service": { "type": "string", "example": "api-gateway" },
+                    "timestamp": { "type": "string", "format": "date-time" },
+                    "services": {
+                      "type": "object",
+                      "properties": {
+                        "auth": { "type": "string", "example": "http://localhost:3001" },
+                        "chat": { "type": "string", "example": "http://localhost:3002" },
+                        "video": { "type": "string", "example": "http://localhost:3003" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/{path}": {
+      "get": {
+        "summary": "Proxy to Auth Service",
+        "tags": ["Proxy"],
+        "description": "All requests to /api/auth/* are proxied to the Auth Service",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Auth service endpoint path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response from Auth Service"
+          },
+          "503": {
+            "description": "Auth Service unavailable"
+          }
+        }
+      },
+      "post": {
+        "summary": "Proxy to Auth Service",
+        "tags": ["Proxy"],
+        "description": "All requests to /api/auth/* are proxied to the Auth Service",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Auth service endpoint path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response from Auth Service"
+          },
+          "503": {
+            "description": "Auth Service unavailable"
+          }
+        }
+      }
+    },
+    "/api/chat/{path}": {
+      "get": {
+        "summary": "Proxy to Chat Service",
+        "tags": ["Proxy"],
+        "description": "All requests to /api/chat/* are proxied to the Chat Service",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Chat service endpoint path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response from Chat Service"
+          },
+          "503": {
+            "description": "Chat Service unavailable"
+          }
+        }
+      }
+    },
+    "/api/video/{path}": {
+      "get": {
+        "summary": "Proxy to Video Service",
+        "tags": ["Proxy"],
+        "description": "All requests to /api/video/* are proxied to the Video Service",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Video service endpoint path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response from Video Service"
+          },
+          "503": {
+            "description": "Video Service unavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "error": { "type": "string" },
+          "details": { "type": "string" }
+        }
+      }
+    }
+  }
+}
+

@@ -1,10 +1,19 @@
 import { Socket } from "socket.io";
-import { ExtendedError } from "socket.io/dist/namespace";
-import { AuthService } from "../services/authService";
+import { auth } from "../config/firebase";
 import { SocketUser } from "../types/chat";
 
 export interface AuthenticatedSocket extends Socket {
   user?: SocketUser;
+}
+
+/**
+ * Extended Error interface for Socket.IO middleware
+ */
+interface ExtendedError extends Error {
+  data?: {
+    code?: string;
+    message?: string;
+  };
 }
 
 /**
@@ -28,7 +37,7 @@ export const socketAuthMiddleware = async (
     }
 
     // Verify the token
-    const decodedToken = await AuthService.verifyIdToken(token);
+    const decodedToken = await auth.verifyIdToken(token);
 
     // Attach user info to socket
     socket.user = {
@@ -50,4 +59,3 @@ export const socketAuthMiddleware = async (
     next(err);
   }
 };
-

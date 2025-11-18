@@ -1,0 +1,190 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Video Service API",
+    "version": "1.0.0",
+    "description": "Real-time video conferencing microservice for Nexun using Socket.IO and WebRTC"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3003",
+      "description": "Video Service (Direct)"
+    },
+    {
+      "url": "http://localhost:3000/api/video",
+      "description": "Video Service (via API Gateway)"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check endpoint",
+        "tags": ["Health"],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "service": { "type": "string", "example": "video-service" },
+                    "timestamp": { "type": "string", "format": "date-time" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "VideoRoom": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "hostId": { "type": "string" },
+          "participants": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "maxParticipants": { "type": "number", "default": 50 },
+          "isRecording": { "type": "boolean", "default": false },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "VideoParticipant": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string" },
+          "socketId": { "type": "string" },
+          "isAudioEnabled": { "type": "boolean", "default": true },
+          "isVideoEnabled": { "type": "boolean", "default": true },
+          "isScreenSharing": { "type": "boolean", "default": false },
+          "joinedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "x-socketio": {
+    "namespace": "/",
+    "events": {
+      "video:room:create": {
+        "description": "Create a new video room",
+        "payload": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "maxParticipants": { "type": "number", "default": 50 }
+          }
+        },
+        "response": {
+          "video:room:created": {
+            "$ref": "#/components/schemas/VideoRoom"
+          }
+        }
+      },
+      "video:room:join": {
+        "description": "Join a video room",
+        "payload": {
+          "type": "object",
+          "required": ["roomId"],
+          "properties": {
+            "roomId": { "type": "string" }
+          }
+        },
+        "response": {
+          "video:room:joined": {
+            "type": "object",
+            "properties": {
+              "roomId": { "type": "string" },
+              "room": { "$ref": "#/components/schemas/VideoRoom" },
+              "participants": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/VideoParticipant" }
+              }
+            }
+          }
+        }
+      },
+      "video:room:leave": {
+        "description": "Leave a video room",
+        "payload": {
+          "type": "object",
+          "required": ["roomId"],
+          "properties": {
+            "roomId": { "type": "string" }
+          }
+        }
+      },
+      "video:signal": {
+        "description": "WebRTC signaling (offer, answer, ICE candidates)",
+        "payload": {
+          "type": "object",
+          "required": ["type", "roomId", "data"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["offer", "answer", "ice-candidate"]
+            },
+            "roomId": { "type": "string" },
+            "targetUserId": { "type": "string", "description": "Optional: send to specific user, otherwise broadcast" },
+            "data": { "type": "object", "description": "WebRTC SDP or ICE candidate data" }
+          }
+        }
+      },
+      "video:toggle-audio": {
+        "description": "Toggle audio on/off",
+        "payload": {
+          "type": "object",
+          "required": ["roomId", "enabled"],
+          "properties": {
+            "roomId": { "type": "string" },
+            "enabled": { "type": "boolean" }
+          }
+        }
+      },
+      "video:toggle-video": {
+        "description": "Toggle video on/off",
+        "payload": {
+          "type": "object",
+          "required": ["roomId", "enabled"],
+          "properties": {
+            "roomId": { "type": "string" },
+            "enabled": { "type": "boolean" }
+          }
+        }
+      },
+      "video:toggle-screen": {
+        "description": "Toggle screen sharing on/off",
+        "payload": {
+          "type": "object",
+          "required": ["roomId", "enabled"],
+          "properties": {
+            "roomId": { "type": "string" },
+            "enabled": { "type": "boolean" }
+          }
+        }
+      },
+      "video:room:end": {
+        "description": "End a video room (host only)",
+        "payload": {
+          "type": "object",
+          "required": ["roomId"],
+          "properties": {
+            "roomId": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
+

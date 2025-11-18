@@ -1,8 +1,14 @@
-import { auth, firestore } from "../config/firebase";
-import { UserProfile } from "../types/auth";
+import { auth, firestore } from "../../../../shared/config/firebase";
+import { UserProfile } from "../../../../shared/types/auth";
 import * as admin from "firebase-admin";
 
 export class AuthService {
+  /**
+   * Verifies a Firebase ID token
+   * @param idToken - The Firebase ID token to verify
+   * @returns Decoded token with user information
+   * @throws Error if token is invalid or expired
+   */
   static async verifyIdToken(idToken: string): Promise<admin.auth.DecodedIdToken> {
     try {
       return await auth.verifyIdToken(idToken);
@@ -12,8 +18,12 @@ export class AuthService {
   }
 
   /**
-   * Create a new user account
-   * Creates user in Firebase Auth and saves profile to Firestore
+   * Creates a new user account in Firebase Auth and saves profile to Firestore
+   * @param email - User email address
+   * @param password - User password (min 6 characters)
+   * @param displayName - Optional display name for the user
+   * @returns Object containing custom token and user profile
+   * @throws Error with Firebase error codes (auth/email-already-in-use, auth/invalid-email, auth/weak-password)
    */
   static async createUser(email: string, password: string, displayName?: string): Promise<{ customToken: string; userProfile: UserProfile }> {
     try {
@@ -74,9 +84,13 @@ export class AuthService {
   }
 
   /**
-   * Sign in user with email
+   * Signs in a user with email
    * Note: Password verification happens client-side via Firebase Auth REST API
    * This method creates a custom token after client-side password verification
+   * @param email - User email address
+   * @param _password - Password (verified client-side, not used here)
+   * @returns Object containing custom token and user profile
+   * @throws Error with Firebase error codes (auth/user-not-found, auth/user-disabled)
    */
   static async signInWithEmail(email: string, _password: string): Promise<{ customToken: string; userProfile: UserProfile }> {
     try {
@@ -127,7 +141,10 @@ export class AuthService {
   }
 
   /**
-   * Save or update user profile from decoded ID token (e.g., from Google auth)
+   * Saves or updates user profile in Firestore from decoded ID token
+   * Used for Google authentication and other OAuth providers
+   * @param decodedToken - Decoded Firebase ID token
+   * @returns User profile saved in Firestore
    */
   static async saveUserProfile(decodedToken: admin.auth.DecodedIdToken): Promise<UserProfile> {
     const userRecord = await auth.getUser(decodedToken.uid);

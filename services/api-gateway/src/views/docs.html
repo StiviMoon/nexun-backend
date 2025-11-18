@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexun API Documentation</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 3px solid #4CAF50;
+      padding-bottom: 10px;
+    }
+    .services {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      margin-top: 30px;
+    }
+    .service-card {
+      background: white;
+      border-radius: 8px;
+      padding: 25px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .service-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    }
+    .service-card h2 {
+      margin-top: 0;
+      color: #4CAF50;
+    }
+    .service-card p {
+      color: #666;
+      line-height: 1.6;
+    }
+    .service-card a {
+      display: inline-block;
+      margin-top: 15px;
+      padding: 10px 20px;
+      background: #4CAF50;
+      color: white;
+      text-decoration: none;
+      border-radius: 5px;
+      font-weight: 500;
+    }
+    .service-card a:hover {
+      background: #45a049;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      background: #e3f2fd;
+      color: #1976d2;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>📚 Nexun API Documentation</h1>
+  <p>Select a service to view its API documentation:</p>
+  
+  <div class="services">
+    <div class="service-card">
+      <h2>API Gateway <span class="badge">Port 3000</span></h2>
+      <p>Entry point for all client requests. Routes requests to appropriate microservices.</p>
+      <a href="/api-docs/gateway">View Documentation →</a>
+    </div>
+    
+    <div class="service-card">
+      <h2>Auth Service <span class="badge">Port 3001</span></h2>
+      <p>User registration, authentication, Google OAuth, and token verification.</p>
+      <a href="/api-docs/auth">View Documentation →</a>
+    </div>
+    
+    <div class="service-card">
+      <h2>Chat Service <span class="badge">Port 3002</span></h2>
+      <p>Real-time chat with Socket.IO, room management, and message history.</p>
+      <a href="/api-docs/chat">View Documentation →</a>
+    </div>
+    
+    <div class="service-card">
+      <h2>Video Service <span class="badge">Port 3003</span></h2>
+      <p>Video conferencing with WebRTC, screen sharing, and audio/video controls.</p>
+      <a href="/api-docs/video">View Documentation →</a>
+    </div>
+  </div>
+</body>
+</html>
+

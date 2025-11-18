@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { AuthService } from "../services/authService";
-import { AuthResponse, RegisterRequest, LoginRequest, GoogleAuthRequest, VerifyTokenRequest } from "../types/auth";
-import { authenticateToken, AuthenticatedRequest } from "../middleware/authMiddleware";
+import { AuthResponse, RegisterRequest, LoginRequest, GoogleAuthRequest, VerifyTokenRequest } from "../../../../shared/types/auth";
+import { authenticateToken, AuthenticatedRequest } from "../../../../shared/middleware/authMiddleware";
 import { z } from "zod";
 
 const router = Router();
@@ -25,7 +25,11 @@ const verifyTokenSchema = z.object({
   idToken: z.string().min(1, "ID token is required")
 });
 
-// POST /auth/register
+/**
+ * @route POST /auth/register
+ * @desc Register a new user account
+ * @access Public
+ */
 router.post("/register", async (req: Request<{}, AuthResponse, RegisterRequest>, res: Response<AuthResponse>) => {
   try {
     const validationResult = registerSchema.safeParse(req.body);
@@ -58,7 +62,11 @@ router.post("/register", async (req: Request<{}, AuthResponse, RegisterRequest>,
   }
 });
 
-// POST /auth/login
+/**
+ * @route POST /auth/login
+ * @desc Login with email and password
+ * @access Public
+ */
 router.post("/login", async (req: Request<{}, AuthResponse, LoginRequest>, res: Response<AuthResponse>) => {
   try {
     const validationResult = loginSchema.safeParse(req.body);
@@ -93,7 +101,11 @@ router.post("/login", async (req: Request<{}, AuthResponse, LoginRequest>, res: 
   }
 });
 
-// POST /auth/google
+/**
+ * @route POST /auth/google
+ * @desc Authenticate with Google OAuth
+ * @access Public
+ */
 router.post("/google", async (req: Request<{}, AuthResponse, GoogleAuthRequest>, res: Response<AuthResponse>) => {
   try {
     const validationResult = googleAuthSchema.safeParse(req.body);
@@ -125,7 +137,11 @@ router.post("/google", async (req: Request<{}, AuthResponse, GoogleAuthRequest>,
   }
 });
 
-// POST /auth/verify
+/**
+ * @route POST /auth/verify
+ * @desc Verify Firebase ID token
+ * @access Public
+ */
 router.post("/verify", async (req: Request<{}, AuthResponse, VerifyTokenRequest>, res: Response<AuthResponse>) => {
   try {
     const validationResult = verifyTokenSchema.safeParse(req.body);
@@ -165,7 +181,11 @@ router.post("/verify", async (req: Request<{}, AuthResponse, VerifyTokenRequest>
   }
 });
 
-// POST /auth/logout
+/**
+ * @route POST /auth/logout
+ * @desc Logout current user
+ * @access Private
+ */
 router.post("/logout", authenticateToken, async (req: AuthenticatedRequest, res: Response<AuthResponse>) => {
   try {
     if (!req.user?.uid) {
@@ -192,7 +212,11 @@ router.post("/logout", authenticateToken, async (req: AuthenticatedRequest, res:
   }
 });
 
-// GET /auth/me - Get current user profile
+/**
+ * @route GET /auth/me
+ * @desc Get current user profile
+ * @access Private
+ */
 router.get("/me", authenticateToken, async (req: AuthenticatedRequest, res: Response<AuthResponse>) => {
   try {
     if (!req.user?.uid) {

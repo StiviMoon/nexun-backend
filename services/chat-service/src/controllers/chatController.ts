@@ -1,23 +1,27 @@
 import { Server as SocketIOServer } from "socket.io";
-import { AuthenticatedSocket } from "../middleware/socketAuthMiddleware";
+import { AuthenticatedSocket } from "../../../../shared/middleware/socketAuthMiddleware";
 import { ChatService } from "../services/chatService";
 import {
   ChatMessage,
   JoinRoomData,
   SendMessageData,
   CreateRoomData
-} from "../types/chat";
+} from "../../../../shared/types/chat";
+import { Logger } from "../../../../shared/utils/logger";
 
 export class ChatController {
   private io: SocketIOServer;
   private connectedUsers: Map<string, Set<string>> = new Map(); // userId -> Set of socketIds
+  private logger: Logger;
 
   constructor(io: SocketIOServer) {
     this.io = io;
+    this.logger = new Logger("chat-service");
   }
 
   /**
-   * Handle new socket connection
+   * Handles new Socket.IO connection
+   * @param socket - Authenticated socket connection
    */
   handleConnection = (socket: AuthenticatedSocket): void => {
     if (!socket.user) {
@@ -33,7 +37,7 @@ export class ChatController {
     }
     this.connectedUsers.get(userId)?.add(socket.id);
 
-    console.log(`✅ User ${userId} connected (socket: ${socket.id})`);
+    this.logger.info(`User ${userId} connected (socket: ${socket.id})`);
 
     // Emit connection status to user's other devices
     socket.broadcast.emit("user:online", { userId });
@@ -51,7 +55,8 @@ export class ChatController {
   };
 
   /**
-   * Register all event handlers for a socket
+   * Registers all Socket.IO event handlers for a socket
+   * @param socket - Authenticated socket to register handlers for
    */
   private registerEventHandlers = (socket: AuthenticatedSocket): void => {
     socket.on("room:join", (data: JoinRoomData) => {
@@ -97,15 +102,17 @@ export class ChatController {
       if (userSockets.size === 0) {
         this.connectedUsers.delete(userId);
         socket.broadcast.emit("user:offline", { userId });
-        console.log(`❌ User ${userId} disconnected (all sessions)`);
+        this.logger.info(`User ${userId} disconnected (all sessions)`);
       } else {
-        console.log(`🔌 User ${userId} disconnected (socket: ${socket.id}, ${userSockets.size} sessions remaining)`);
+        this.logger.info(`User ${userId} disconnected (socket: ${socket.id}, ${userSockets.size} sessions remaining)`);
       }
     }
   };
 
   /**
-   * Handle joining a room
+   * Handles joining a chat room
+   * @param socket - Authenticated socket
+   * @param data - Room join data containing roomId
    */
   private handleJoinRoom = async (
     socket: AuthenticatedSocket,
@@ -134,7 +141,7 @@ export class ChatController {
         if (room.type === "group" || room.type === "channel") {
           // Auto-add user as participant for public rooms
           await ChatService.addParticipant(roomId, socket.user.uid);
-          console.log(`➕ Auto-added user ${socket.user.uid} as participant to public room ${roomId}`);
+          this.logger.info(`Auto-added user ${socket.user.uid} as participant to public room ${roomId}`);
         } else {
           // For direct rooms, require explicit invitation
           socket.emit("error", {
@@ -157,7 +164,7 @@ export class ChatController {
 
       socket.emit("room:joined", { roomId, room });
 
-      console.log(`👤 User ${socket.user.uid} joined room ${roomId}`);
+      this.logger.info(`User ${socket.user.uid} joined room ${roomId}`);
     } catch (error) {
       socket.emit("error", {
         message: error instanceof Error ? error.message : "Failed to join room",
@@ -191,7 +198,7 @@ export class ChatController {
 
       socket.emit("room:left", { roomId });
 
-      console.log(`👋 User ${socket.user.uid} left room ${roomId}`);
+      this.logger.info(`User ${socket.user.uid} left room ${roomId}`);
     } catch (error) {
       socket.emit("error", {
         message: error instanceof Error ? error.message : "Failed to leave room",
@@ -201,7 +208,9 @@ export class ChatController {
   };
 
   /**
-   * Handle sending a message
+   * Handles sending a chat message
+   * @param socket - Authenticated socket
+   * @param data - Message data (roomId, content, type, metadata)
    */
   private handleSendMessage = async (
     socket: AuthenticatedSocket,
@@ -253,7 +262,7 @@ export class ChatController {
       // Emit message to all clients in the room
       this.io.to(roomId).emit("message:new", savedMessage);
 
-      console.log(`💬 Message sent in room ${roomId} by ${socket.user.uid}`);
+      this.logger.info(`Message sent in room ${roomId} by ${socket.user.uid}`);
     } catch (error) {
       socket.emit("error", {
         message: error instanceof Error ? error.message : "Failed to send message",
@@ -282,7 +291,7 @@ export class ChatController {
 
       socket.emit("room:created", room);
 
-      console.log(`🏠 Room ${room.id} created by ${socket.user.uid}`);
+      this.logger.info(`Room ${room.id} created by ${socket.user.uid}`);
     } catch (error) {
       socket.emit("error", {
         message: error instanceof Error ? error.message : "Failed to create room",
@@ -376,7 +385,7 @@ export class ChatController {
       const rooms = await ChatService.getUserRooms(socket.user.uid);
       socket.emit("rooms:list", rooms);
     } catch (error) {
-      console.error("Failed to send user rooms:", error);
+      this.logger.error("Failed to send user rooms:", error);
     }
   };
 

@@ -1,0 +1,207 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Chat Service API",
+    "version": "1.0.0",
+    "description": "Real-time chat microservice for Nexun using Socket.IO"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3002",
+      "description": "Chat Service (Direct)"
+    },
+    {
+      "url": "http://localhost:3000/api/chat",
+      "description": "Chat Service (via API Gateway)"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check endpoint",
+        "tags": ["Health"],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "service": { "type": "string", "example": "chat-service" },
+                    "timestamp": { "type": "string", "format": "date-time" },
+                    "onlineUsers": { "type": "number", "example": 5 }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChatMessage": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "roomId": { "type": "string" },
+          "senderId": { "type": "string" },
+          "senderName": { "type": "string" },
+          "senderPicture": { "type": "string" },
+          "content": { "type": "string" },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "type": {
+            "type": "string",
+            "enum": ["text", "image", "file", "system"]
+          },
+          "metadata": { "type": "object" }
+        }
+      },
+      "ChatRoom": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": ["direct", "group", "channel"]
+          },
+          "participants": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "createdBy": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "x-socketio": {
+    "namespace": "/",
+    "events": {
+      "room:join": {
+        "description": "Join a chat room",
+        "payload": {
+          "type": "object",
+          "required": ["roomId"],
+          "properties": {
+            "roomId": { "type": "string" }
+          }
+        },
+        "response": {
+          "room:joined": {
+            "type": "object",
+            "properties": {
+              "roomId": { "type": "string" },
+              "room": { "$ref": "#/components/schemas/ChatRoom" }
+            }
+          }
+        }
+      },
+      "room:leave": {
+        "description": "Leave a chat room",
+        "payload": {
+          "type": "object",
+          "required": ["roomId"],
+          "properties": {
+            "roomId": { "type": "string" }
+          }
+        }
+      },
+      "room:create": {
+        "description": "Create a new chat room",
+        "payload": {
+          "type": "object",
+          "required": ["name", "type"],
+          "properties": {
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "type": {
+              "type": "string",
+              "enum": ["direct", "group", "channel"]
+            },
+            "participants": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "response": {
+          "room:created": {
+            "$ref": "#/components/schemas/ChatRoom"
+          }
+        }
+      },
+      "message:send": {
+        "description": "Send a message to a room",
+        "payload": {
+          "type": "object",
+          "required": ["roomId", "content"],
+          "properties": {
+            "roomId": { "type": "string" },
+            "content": { "type": "string" },
+            "type": {
+              "type": "string",
+              "enum": ["text", "image", "file"],
+              "default": "text"
+            },
+            "metadata": { "type": "object" }
+          }
+        },
+        "response": {
+          "message:new": {
+            "$ref": "#/components/schemas/ChatMessage"
+          }
+        }
+      },
+      "messages:get": {
+        "description": "Get messages from a room",
+        "payload": {
+          "type": "object",
+          "required": ["roomId"],
+          "properties": {
+            "roomId": { "type": "string" },
+            "limit": { "type": "number", "default": 50 },
+            "lastMessageId": { "type": "string" }
+          }
+        },
+        "response": {
+          "messages:list": {
+            "type": "object",
+            "properties": {
+              "roomId": { "type": "string" },
+              "messages": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/ChatMessage" }
+              }
+            }
+          }
+        }
+      },
+      "user:online": {
+        "description": "Emitted when a user comes online",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "userId": { "type": "string" }
+          }
+        }
+      },
+      "user:offline": {
+        "description": "Emitted when a user goes offline",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "userId": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
+

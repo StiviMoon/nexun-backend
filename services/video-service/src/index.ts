@@ -3,16 +3,17 @@ import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import cors from "cors";
 import * as dotenv from "dotenv";
-import authRoutes from "./routes/authRoutes";
-import { socketAuthMiddleware, AuthenticatedSocket } from "./middleware/socketAuthMiddleware";
-import { ChatController } from "./controllers/chatController";
+import { socketAuthMiddleware, AuthenticatedSocket } from "../../../shared/middleware/socketAuthMiddleware";
+import { VideoController } from "./controllers/videoController";
+import { Logger } from "../../../shared/utils/logger";
 
 dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.VIDEO_SERVICE_PORT || 3003;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
+const logger = new Logger("video-service");
 
 // Initialize Socket.IO
 const io = new SocketIOServer(httpServer, {
@@ -27,12 +28,12 @@ const io = new SocketIOServer(httpServer, {
 // Apply authentication middleware to Socket.IO
 io.use(socketAuthMiddleware);
 
-// Initialize Chat Controller
-const chatController = new ChatController(io);
+// Initialize Video Controller
+const videoController = new VideoController(io);
 
 // Handle Socket.IO connections
 io.on("connection", (socket: AuthenticatedSocket) => {
-  chatController.handleConnection(socket);
+  videoController.handleConnection(socket);
 });
 
 // Middleware
@@ -50,20 +51,14 @@ app.use(express.urlencoded({ extended: true }));
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
     status: "ok",
-    message: "Nexun Backend API is running",
-    services: {
-      chat: "active",
-      auth: "active"
-    }
+    service: "video-service",
+    timestamp: new Date().toISOString()
   });
 });
 
-// API Routes
-app.use("/auth", authRoutes);
-
 // Error handling middleware
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("Error:", err);
+  logger.error("Error:", err.message);
   res.status(500).json({
     success: false,
     error: "Internal server error"
@@ -79,8 +74,8 @@ app.use((_req: Request, res: Response) => {
 });
 
 httpServer.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
-  console.log(`📡 CORS enabled for: ${CORS_ORIGIN}`);
-  console.log(`💬 Chat microservice is active`);
+  logger.info(`🚀 Video Service is running on port ${PORT}`);
+  logger.info(`📡 CORS enabled for: ${CORS_ORIGIN}`);
+  logger.info(`🎥 Video microservice is active`);
 });
 

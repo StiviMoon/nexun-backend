@@ -1,5 +1,5 @@
-import { firestore } from "../config/firebase";
-import { ChatMessage, ChatRoom, CreateRoomData } from "../types/chat";
+import { firestore } from "../../../../shared/config/firebase";
+import { ChatMessage, ChatRoom, CreateRoomData } from "../../../../shared/types/chat";
 import * as admin from "firebase-admin";
 
 export class ChatService {
@@ -49,7 +49,11 @@ export class ChatService {
   }
 
   /**
-   * Create a new chat room
+   * Creates a new chat room in Firestore
+   * @param data - Room creation data (name, type, participants, etc.)
+   * @param createdBy - User ID of the room creator
+   * @returns Created chat room
+   * @throws Error if room creation fails
    */
   static async createRoom(
     data: CreateRoomData,
@@ -109,7 +113,9 @@ export class ChatService {
   }
 
   /**
-   * Get a room by ID (with cache)
+   * Gets a chat room by ID with caching (30s TTL)
+   * @param roomId - Room ID to retrieve
+   * @returns Chat room or null if not found
    */
   static async getRoom(roomId: string): Promise<ChatRoom | null> {
     try {
@@ -237,7 +243,10 @@ export class ChatService {
   }
 
   /**
-   * Save a message to Firestore
+   * Saves a chat message to Firestore and updates room timestamp
+   * @param message - Message to save (id will be generated)
+   * @returns Saved message with generated ID
+   * @throws Error if message save fails
    */
   static async saveMessage(message: ChatMessage): Promise<ChatMessage> {
     try {
@@ -282,7 +291,12 @@ export class ChatService {
   }
 
   /**
-   * Get messages for a room with pagination
+   * Gets messages for a room with pagination support
+   * @param roomId - Room ID to get messages from
+   * @param limit - Maximum number of messages to return (default: 50)
+   * @param lastMessageId - Optional message ID for pagination
+   * @returns Array of chat messages in chronological order
+   * @throws Error if query fails
    */
   static async getMessages(
     roomId: string,
@@ -325,16 +339,16 @@ export class ChatService {
         } as ChatMessage);
       });
 
-      return messages.reverse(); // Return in chronological order
+      return messages.reverse();
     } catch (error) {
-      // Si el error es por falta de índice, intentar sin orderBy como fallback
+      // Fallback: try without orderBy if index is missing
       if (error instanceof Error && error.message.includes("index")) {
         console.warn("Index not found, trying query without orderBy as fallback");
         try {
           const snapshot = await firestore
             .collection(this.MESSAGES_COLLECTION)
             .where("roomId", "==", roomId)
-            .limit(limit * 2) // Obtener más para compensar la falta de orden
+            .limit(limit * 2)
             .get();
 
           const messages: ChatMessage[] = [];
@@ -354,13 +368,12 @@ export class ChatService {
             } as ChatMessage);
           });
 
-          // Ordenar manualmente por timestamp y limitar
+          // Sort manually by timestamp and limit
           return messages
             .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
             .slice(-limit);
         } catch (fallbackError) {
           console.error("Fallback query also failed:", fallbackError);
-          // Si el fallback también falla, devolver array vacío
           return [];
         }
       }
@@ -412,7 +425,7 @@ export class ChatService {
           roomsMap.set(doc.id, room);
         });
       } catch (publicError) {
-        // Si falla por falta de índice, intentar sin orderBy
+        // Fallback: try without orderBy if index is missing
         if (publicError instanceof Error && publicError.message.includes("index")) {
           console.warn("Index not found for public rooms, trying without orderBy");
           const publicRoomsSnapshot = await firestore
@@ -463,7 +476,7 @@ export class ChatService {
           roomsMap.set(doc.id, room);
         });
       } catch (privateError) {
-        // Si falla por falta de índice, intentar sin orderBy
+        // Fallback: try without orderBy if index is missing
         if (privateError instanceof Error && privateError.message.includes("index")) {
           console.warn("Index not found for private rooms, trying without orderBy");
           const privateRoomsSnapshot = await firestore
