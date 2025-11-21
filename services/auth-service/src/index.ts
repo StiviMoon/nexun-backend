@@ -8,7 +8,10 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.AUTH_SERVICE_PORT || 3001;
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
+// Allow multiple origins or single origin from env
+const CORS_ORIGIN = process.env.CORS_ORIGIN 
+  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+  : ["http://localhost:3000", "http://localhost:5000", "http://localhost:5173", "http://localhost:3001"];
 const logger = new Logger("auth-service");
 
 // Middleware
@@ -53,6 +56,6 @@ app.use((_req: Request, res: Response) => {
 
 app.listen(PORT, () => {
   logger.info(`🚀 Auth Service is running on port ${PORT}`);
-  logger.info(`📡 CORS enabled for: ${CORS_ORIGIN}`);
+  logger.info(`📡 CORS enabled for: ${Array.isArray(CORS_ORIGIN) ? CORS_ORIGIN.join(', ') : CORS_ORIGIN}`);
 });
 

@@ -5,7 +5,8 @@ import {
   ChatMessage,
   JoinRoomData,
   SendMessageData,
-  CreateRoomData
+  CreateRoomData,
+  JoinByCodeData
 } from "../../../../shared/types/chat";
 import { Logger } from "../../../../shared/utils/logger";
 
@@ -79,6 +80,10 @@ export class ChatController {
       this.handleGetRoom(socket, roomId);
     });
 
+    socket.on("room:join-by-code", (data: JoinByCodeData) => {
+      this.handleJoinByCode(socket, data);
+    });
+
     socket.on("messages:get", (data: { roomId: string; limit?: number; lastMessageId?: string }) => {
       this.handleGetMessages(socket, data);
     });
@@ -112,19 +117,19 @@ export class ChatController {
   /**
    * Handles joining a chat room
    * @param socket - Authenticated socket
-   * @param data - Room join data containing roomId
+   * @param data - Room join data containing roomId and optional code
    */
   private handleJoinRoom = async (
     socket: AuthenticatedSocket,
     data: JoinRoomData
   ): Promise<void> => {
     if (!socket.user) {
-      socket.emit("error", { message: "Unauthorized" });
+      socket.emit("error", { message: "Unauthorized", code: "UNAUTHORIZED" });
       return;
     }
 
     try {
-      const { roomId } = data;
+      const { roomId, code } = data;
 
       // Verify room exists
       const room = await ChatService.getRoom(roomId);
@@ -133,27 +138,39 @@ export class ChatController {
         return;
       }
 
-      // Check if user is a participant
-      const isParticipant = await ChatService.isParticipant(roomId, socket.user.uid);
-
-      // For public rooms (group/channel), allow joining and auto-add as participant
-      if (!isParticipant) {
-        if (room.type === "group" || room.type === "channel") {
-          // Auto-add user as participant for public rooms
-          await ChatService.addParticipant(roomId, socket.user.uid);
-          this.logger.info(`Auto-added user ${socket.user.uid} as participant to public room ${roomId}`);
-        } else {
-          // For direct rooms, require explicit invitation
+      // Verify code for private rooms
+      if (room.visibility === "private") {
+        if (!code) {
           socket.emit("error", {
-            message: "You are not a participant of this room",
-            code: "NOT_PARTICIPANT"
+            message: "Code required for private rooms",
+            code: "CODE_REQUIRED"
+          });
+          return;
+        }
+
+        if (room.code !== code.toUpperCase()) {
+          socket.emit("error", {
+            message: "Invalid access code",
+            code: "INVALID_CODE"
           });
           return;
         }
       }
 
+      // Check if user is a participant
+      const isParticipant = await ChatService.isParticipant(roomId, socket.user.uid);
+
+      // Add user as participant if not already
+      if (!isParticipant) {
+        await ChatService.addParticipant(roomId, socket.user.uid);
+        this.logger.info(`Added user ${socket.user.uid} as participant to room ${roomId}`);
+      }
+
       // Join the socket room
       await socket.join(roomId);
+
+      // Get updated room
+      const updatedRoom = await ChatService.getRoom(roomId);
 
       // Notify others in the room
       socket.to(roomId).emit("room:user-joined", {
@@ -162,7 +179,7 @@ export class ChatController {
         userName: socket.user.name
       });
 
-      socket.emit("room:joined", { roomId, room });
+      socket.emit("room:joined", { roomId, room: updatedRoom });
 
       this.logger.info(`User ${socket.user.uid} joined room ${roomId}`);
     } catch (error) {
@@ -279,19 +296,37 @@ export class ChatController {
     data: CreateRoomData
   ): Promise<void> => {
     if (!socket.user) {
-      socket.emit("error", { message: "Unauthorized" });
+      socket.emit("error", { message: "Unauthorized", code: "UNAUTHORIZED" });
       return;
     }
 
     try {
+      // Validate required fields
+      if (!data.name || !data.type || !data.visibility) {
+        socket.emit("error", {
+          message: "Name, type, and visibility are required",
+          code: "VALIDATION_ERROR"
+        });
+        return;
+      }
+
       const room = await ChatService.createRoom(data, socket.user.uid);
 
       // Join the creator to the room
       await socket.join(room.id);
 
+      // Emit response with code included (if private)
       socket.emit("room:created", room);
 
-      this.logger.info(`Room ${room.id} created by ${socket.user.uid}`);
+      // Broadcast to others only if public
+      if (room.visibility === "public") {
+        socket.broadcast.emit("room:created", {
+          ...room,
+          code: undefined // Don't expose code to others
+        });
+      }
+
+      this.logger.info(`Room ${room.id} created by ${socket.user.uid} (visibility: ${room.visibility})`);
     } catch (error) {
       socket.emit("error", {
         message: error instanceof Error ? error.message : "Failed to create room",
@@ -308,7 +343,7 @@ export class ChatController {
     roomId: string
   ): Promise<void> => {
     if (!socket.user) {
-      socket.emit("error", { message: "Unauthorized" });
+      socket.emit("error", { message: "Unauthorized", code: "UNAUTHORIZED" });
       return;
     }
 
@@ -321,7 +356,9 @@ export class ChatController {
       }
 
       const isParticipant = await ChatService.isParticipant(roomId, socket.user.uid);
-      if (!isParticipant) {
+      
+      // For private rooms, require participation
+      if (room.visibility === "private" && !isParticipant) {
         socket.emit("error", {
           message: "You are not a participant of this room",
           code: "NOT_PARTICIPANT"
@@ -329,11 +366,95 @@ export class ChatController {
         return;
       }
 
-      socket.emit("room:details", room);
+      // For public rooms, allow viewing but hide code if not participant
+      const roomToSend = {
+        ...room,
+        code: isParticipant ? room.code : undefined
+      };
+
+      socket.emit("room:details", roomToSend);
     } catch (error) {
       socket.emit("error", {
         message: error instanceof Error ? error.message : "Failed to get room",
         code: "GET_ROOM_ERROR"
+      });
+    }
+  };
+
+  /**
+   * Handle joining a room by code
+   */
+  private handleJoinByCode = async (
+    socket: AuthenticatedSocket,
+    data: JoinByCodeData
+  ): Promise<void> => {
+    if (!socket.user) {
+      socket.emit("error", { message: "Unauthorized", code: "UNAUTHORIZED" });
+      return;
+    }
+
+    try {
+      const { code } = data;
+
+      // Validate code format
+      if (!code || code.trim().length < 6) {
+        socket.emit("error", {
+          message: "Invalid code format",
+          code: "INVALID_CODE_FORMAT"
+        });
+        return;
+      }
+
+      // Search for room by code
+      const room = await ChatService.getRoomByCode(code.toUpperCase());
+
+      if (!room) {
+        socket.emit("error", {
+          message: "Room not found with this code",
+          code: "ROOM_NOT_FOUND"
+        });
+        return;
+      }
+
+      // Verify it's a private room
+      if (room.visibility !== "private") {
+        socket.emit("error", {
+          message: "This code does not correspond to a private room",
+          code: "NOT_PRIVATE_ROOM"
+        });
+        return;
+      }
+
+      // Add user as participant if not already
+      const isParticipant = await ChatService.isParticipant(room.id, socket.user.uid);
+      if (!isParticipant) {
+        await ChatService.addParticipant(room.id, socket.user.uid);
+        this.logger.info(`Added user ${socket.user.uid} as participant to private room ${room.id}`);
+      }
+
+      // Join the socket room
+      await socket.join(room.id);
+
+      // Get updated room
+      const updatedRoom = await ChatService.getRoom(room.id);
+
+      // Notify others in the room
+      socket.to(room.id).emit("room:user-joined", {
+        roomId: room.id,
+        userId: socket.user.uid,
+        userName: socket.user.name
+      });
+
+      socket.emit("room:joined", {
+        roomId: room.id,
+        room: updatedRoom
+      });
+
+      this.logger.info(`User ${socket.user.uid} joined private room ${room.id} by code`);
+    } catch (error) {
+      socket.emit("error", {
+        message: error instanceof Error ? error.message : "Failed to join room by code",
+        code: "JOIN_BY_CODE_ERROR"
       });
     }
   };

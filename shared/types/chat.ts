@@ -24,6 +24,8 @@ export interface ChatRoom {
   name: string;
   description?: string;
   type: "direct" | "group" | "channel";
+  visibility: "public" | "private";
+  code?: string;
   participants: string[];
   createdBy: string;
   createdAt: Date;
@@ -39,6 +41,7 @@ export interface SocketUser {
 
 export interface JoinRoomData {
   roomId: string;
+  code?: string;
 }
 
 export interface SendMessageData {
@@ -52,7 +55,12 @@ export interface CreateRoomData {
   name: string;
   description?: string;
   type: "direct" | "group" | "channel";
+  visibility: "public" | "private";
   participants?: string[];
+}
+
+export interface JoinByCodeData {
+  code: string;
 }
 
 export interface ChatError {

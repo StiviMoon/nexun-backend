@@ -26,8 +26,9 @@ FIREBASE_PROJECT_ID=your-project-id
 FIREBASE_CLIENT_EMAIL=your-client-email
 FIREBASE_PRIVATE_KEY=your-private-key
 
-# CORS
-CORS_ORIGIN=http://localhost:3000
+# CORS (comma-separated for multiple origins)
+# Default includes: http://localhost:3000, http://localhost:5000, http://localhost:5173, http://localhost:3001
+CORS_ORIGIN=http://localhost:3000,http://localhost:5000,http://localhost:5173
 
 # Service Ports
 GATEWAY_PORT=3000
@@ -102,6 +103,20 @@ nexun-backend/
 - **WebSocket**: `ws://localhost:3003`
 
 ## 📚 Documentation
+
+### Frontend Integration
+
+**Complete guide for frontend developers**: See [`FRONTEND_INTEGRATION.md`](./FRONTEND_INTEGRATION.md)
+
+**Google Authentication example**: See [`GOOGLE_AUTH_EXAMPLE.md`](./GOOGLE_AUTH_EXAMPLE.md)
+
+These guides include:
+- Authentication setup (Firebase Auth)
+- Google OAuth step-by-step implementation
+- REST API usage examples
+- WebSocket/Socket.IO connection guides
+- Complete React examples
+- Best practices and error handling
 
 ### API Documentation (Swagger)
 
