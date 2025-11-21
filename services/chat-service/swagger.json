@@ -70,6 +70,15 @@
             "type": "string",
             "enum": ["direct", "group", "channel"]
           },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private"],
+            "description": "Room visibility: public (visible to everyone) or private (requires access code)"
+          },
+          "code": {
+            "type": "string",
+            "description": "Access code for private rooms (6-8 alphanumeric characters, only present for private rooms)"
+          },
           "participants": {
             "type": "array",
             "items": { "type": "string" }
@@ -85,12 +94,16 @@
     "namespace": "/",
     "events": {
       "room:join": {
-        "description": "Join a chat room",
+        "description": "Join a chat room. For private rooms, the code is required.",
         "payload": {
           "type": "object",
           "required": ["roomId"],
           "properties": {
-            "roomId": { "type": "string" }
+            "roomId": { "type": "string" },
+            "code": {
+              "type": "string",
+              "description": "Access code (required for private rooms)"
+            }
           }
         },
         "response": {
@@ -101,6 +114,38 @@
               "room": { "$ref": "#/components/schemas/ChatRoom" }
             }
           }
+        },
+        "errors": {
+          "CODE_REQUIRED": "Code required for private rooms",
+          "INVALID_CODE": "Invalid access code",
+          "ROOM_NOT_FOUND": "Room not found"
+        }
+      },
+      "room:join-by-code": {
+        "description": "Join a private room using only the access code",
+        "payload": {
+          "type": "object",
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "description": "6-8 character alphanumeric access code"
+            }
+          }
+        },
+        "response": {
+          "room:joined": {
+            "type": "object",
+            "properties": {
+              "roomId": { "type": "string" },
+              "room": { "$ref": "#/components/schemas/ChatRoom" }
+            }
+          }
+        },
+        "errors": {
+          "INVALID_CODE_FORMAT": "Invalid code format (must be 6-8 alphanumeric characters)",
+          "ROOM_NOT_FOUND": "Room not found with this code",
+          "NOT_PRIVATE_ROOM": "This code does not correspond to a private room"
         }
       },
       "room:leave": {
@@ -114,16 +159,21 @@
         }
       },
       "room:create": {
-        "description": "Create a new chat room",
+        "description": "Create a new chat room. Private rooms will automatically generate a unique access code.",
         "payload": {
           "type": "object",
-          "required": ["name", "type"],
+          "required": ["name", "type", "visibility"],
           "properties": {
             "name": { "type": "string" },
             "description": { "type": "string" },
             "type": {
               "type": "string",
               "enum": ["direct", "group", "channel"]
+            },
+            "visibility": {
+              "type": "string",
+              "enum": ["public", "private"],
+              "description": "Room visibility: public (visible to everyone) or private (requires access code)"
             },
             "participants": {
               "type": "array",
@@ -133,8 +183,12 @@
         },
         "response": {
           "room:created": {
-            "$ref": "#/components/schemas/ChatRoom"
+            "$ref": "#/components/schemas/ChatRoom",
+            "description": "Returns the created room with the access code if it's private"
           }
+        },
+        "errors": {
+          "VALIDATION_ERROR": "Name, type, and visibility are required"
         }
       },
       "message:send": {

@@ -1,4 +1,5 @@
 import express, { Request, Response, NextFunction } from "express";
+import { createServer } from "http";
 import cors from "cors";
 import { createProxyMiddleware, Options } from "http-proxy-middleware";
 import swaggerUi from "swagger-ui-express";
@@ -10,8 +11,12 @@ import { Logger } from "../../../shared/utils/logger";
 dotenv.config();
 
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.GATEWAY_PORT || 3000;
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
+// Allow multiple origins or single origin from env
+const CORS_ORIGIN = process.env.CORS_ORIGIN 
+  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+  : ["http://localhost:3000", "http://localhost:5000", "http://localhost:5173", "http://localhost:3001"];
 const logger = new Logger("api-gateway");
 
 // Service URLs
@@ -137,57 +142,81 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Proxy to Chat Service (REST endpoints if any)
-app.use(
-  "/api/chat",
-  createProxyMiddleware({
-    target: CHAT_SERVICE_URL,
-    changeOrigin: true,
-    pathRewrite: {
-      "^/api/chat": ""
-    },
-    secure: false,
-    ws: false,
-    onProxyReq: (_proxyReq: unknown, req: Request) => {
-      logger.info(`Proxying ${req.method} ${req.url} to chat-service`);
-    },
-    onError: (err: Error, _req: Request, res: Response) => {
-      logger.error(`Error proxying to chat-service: ${err.message}`);
-      if (!res.headersSent) {
-        res.status(503).json({
-          success: false,
-          error: "Chat service unavailable"
-        });
-      }
+// Proxy to Chat Service (REST endpoints and WebSocket)
+const chatProxy = createProxyMiddleware({
+  target: CHAT_SERVICE_URL,
+  changeOrigin: true,
+  pathRewrite: {
+    "^/api/chat": ""
+  },
+  secure: false,
+  ws: true, // Enable WebSocket support for Socket.IO
+  logLevel: "info",
+  onProxyReq: (_proxyReq: unknown, req: Request) => {
+    logger.info(`Proxying ${req.method} ${req.url} to chat-service`);
+  },
+  onError: (err: Error, _req: Request, res: Response) => {
+    logger.error(`Error proxying to chat-service: ${err.message}`);
+    if (!res.headersSent) {
+      res.status(503).json({
+        success: false,
+        error: "Chat service unavailable"
+      });
     }
-  } as Options)
-);
+  }
+} as Options);
 
-// Proxy to Video Service (REST endpoints if any)
-app.use(
-  "/api/video",
-  createProxyMiddleware({
-    target: VIDEO_SERVICE_URL,
-    changeOrigin: true,
-    pathRewrite: {
-      "^/api/video": ""
-    },
-    secure: false,
-    ws: false,
-    onProxyReq: (_proxyReq: unknown, req: Request) => {
-      logger.info(`Proxying ${req.method} ${req.url} to video-service`);
-    },
-    onError: (err: Error, _req: Request, res: Response) => {
-      logger.error(`Error proxying to video-service: ${err.message}`);
-      if (!res.headersSent) {
-        res.status(503).json({
-          success: false,
-          error: "Video service unavailable"
-        });
-      }
+app.use("/api/chat", chatProxy);
+
+// Proxy to Video Service (REST endpoints and WebSocket)
+const videoProxy = createProxyMiddleware({
+  target: VIDEO_SERVICE_URL,
+  changeOrigin: true,
+  pathRewrite: {
+    "^/api/video": ""
+  },
+  secure: false,
+  ws: true, // Enable WebSocket support for Socket.IO
+  logLevel: "info",
+  onProxyReq: (_proxyReq: unknown, req: Request) => {
+    logger.info(`Proxying ${req.method} ${req.url} to video-service`);
+  },
+  onError: (err: Error, _req: Request, res: Response) => {
+    logger.error(`Error proxying to video-service: ${err.message}`);
+    if (!res.headersSent) {
+      res.status(503).json({
+        success: false,
+        error: "Video service unavailable"
+      });
     }
-  } as Options)
-);
+  }
+} as Options);
+
+app.use("/api/video", videoProxy);
+
+// WebSocket upgrade handler - route to appropriate service
+httpServer.on("upgrade", (req, socket, head) => {
+  const url = req.url || "";
+  
+  // Route chat WebSocket connections
+  if (url.includes("/api/chat") || (url.startsWith("/socket.io") && req.headers.referer?.includes("/api/chat"))) {
+    logger.info(`WebSocket upgrade request for chat: ${url}`);
+    // @ts-ignore - http-proxy-middleware types
+    chatProxy.upgrade(req, socket, head);
+  }
+  // Route video WebSocket connections
+  else if (url.includes("/api/video") || (url.startsWith("/socket.io") && req.headers.referer?.includes("/api/video"))) {
+    logger.info(`WebSocket upgrade request for video: ${url}`);
+    // @ts-ignore - http-proxy-middleware types
+    videoProxy.upgrade(req, socket, head);
+  }
+  // Default: try chat service (Socket.IO default path)
+  else if (url.startsWith("/socket.io")) {
+    logger.info(`WebSocket upgrade request (default to chat): ${url}`);
+    // @ts-ignore - http-proxy-middleware types
+    chatProxy.upgrade(req, socket, head);
+  }
+});
 
 // Error handling middleware
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
@@ -206,13 +235,14 @@ app.use((_req: Request, res: Response) => {
   });
 });
 
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   logger.info(`🚀 API Gateway is running on port ${PORT}`);
-  logger.info(`📡 CORS enabled for: ${CORS_ORIGIN}`);
+  logger.info(`📡 CORS enabled for: ${Array.isArray(CORS_ORIGIN) ? CORS_ORIGIN.join(', ') : CORS_ORIGIN}`);
   logger.info(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+  logger.info(`🔌 WebSocket support enabled for Socket.IO`);
   logger.info(`🔀 Proxying requests to:`);
   logger.info(`   - Auth Service: ${AUTH_SERVICE_URL}`);
-  logger.info(`   - Chat Service: ${CHAT_SERVICE_URL}`);
-  logger.info(`   - Video Service: ${VIDEO_SERVICE_URL}`);
+  logger.info(`   - Chat Service: ${CHAT_SERVICE_URL} (WebSocket: ${CHAT_SERVICE_URL.replace("http", "ws")})`);
+  logger.info(`   - Video Service: ${VIDEO_SERVICE_URL} (WebSocket: ${VIDEO_SERVICE_URL.replace("http", "ws")})`);
 });
 

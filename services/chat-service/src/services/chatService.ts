@@ -6,11 +6,44 @@ export class ChatService {
   private static readonly MESSAGES_COLLECTION = "messages";
   private static readonly ROOMS_COLLECTION = "rooms";
   private static readonly USERS_COLLECTION = "users";
+  private static readonly CODE_LENGTH = 6;
+  private static readonly CODE_REGEX = /^[A-Z0-9]{6,8}$/;
 
   // Cache in-memory para mejorar tiempos de respuesta
   private static roomCache = new Map<string, { room: ChatRoom; timestamp: number }>();
   private static userRoomsCache = new Map<string, { rooms: ChatRoom[]; timestamp: number }>();
   private static readonly CACHE_TTL = 30000; // 30 segundos
+
+  /**
+   * Generates a unique room code (6-8 alphanumeric characters)
+   * @returns Unique room code
+   */
+  private static generateRoomCode(): string {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let code = "";
+    for (let i = 0; i < this.CODE_LENGTH; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }
+
+  /**
+   * Checks if a room exists with the given code
+   * @param code - Room code to check
+   * @returns True if room exists, false otherwise
+   */
+  private static async roomExistsByCode(code: string): Promise<boolean> {
+    try {
+      const snapshot = await firestore
+        .collection(this.ROOMS_COLLECTION)
+        .where("code", "==", code)
+        .limit(1)
+        .get();
+      return !snapshot.empty;
+    } catch (error) {
+      return false;
+    }
+  }
 
   /**
    * Convert Firestore timestamp to Date, handling multiple formats
@@ -50,9 +83,9 @@ export class ChatService {
 
   /**
    * Creates a new chat room in Firestore
-   * @param data - Room creation data (name, type, participants, etc.)
+   * @param data - Room creation data (name, type, visibility, participants, etc.)
    * @param createdBy - User ID of the room creator
-   * @returns Created chat room
+   * @returns Created chat room with generated code if private
    * @throws Error if room creation fails
    */
   static async createRoom(
@@ -60,6 +93,26 @@ export class ChatService {
     createdBy: string
   ): Promise<ChatRoom> {
     try {
+      // Validate required fields
+      if (!data.name || !data.type || !data.visibility) {
+        throw new Error("Name, type, and visibility are required");
+      }
+
+      // Generate unique code for private rooms
+      let roomCode: string | undefined;
+      if (data.visibility === "private") {
+        roomCode = this.generateRoomCode();
+        // Ensure code is unique (very rare collision, but better safe)
+        let attempts = 0;
+        while (await this.roomExistsByCode(roomCode) && attempts < 10) {
+          roomCode = this.generateRoomCode();
+          attempts++;
+        }
+        if (attempts >= 10) {
+          throw new Error("Failed to generate unique room code");
+        }
+      }
+
       const roomId = firestore.collection(this.ROOMS_COLLECTION).doc().id;
       const now = new Date();
 
@@ -68,6 +121,8 @@ export class ChatService {
         name: data.name,
         description: data.description,
         type: data.type,
+        visibility: data.visibility,
+        code: roomCode,
         participants: data.participants
           ? [...new Set([createdBy, ...data.participants])]
           : [createdBy],
@@ -140,6 +195,8 @@ export class ChatService {
         name: data?.name || "",
         description: data?.description,
         type: data?.type || "group",
+        visibility: data?.visibility || "public",
+        code: data?.code,
         participants: data?.participants || [],
         createdBy: data?.createdBy || "",
         createdAt: this.convertToDate(data?.createdAt),
@@ -386,8 +443,8 @@ export class ChatService {
   /**
    * Get user's rooms (with cache)
    * Returns:
-   * - All public rooms (type: "group" or "channel") - visible to everyone
-   * - Private rooms (type: "direct") where user is a participant
+   * - All public rooms (visibility: "public") - visible to everyone
+   * - Private rooms (visibility: "private") where user is a participant
    */
   static async getUserRooms(userId: string): Promise<ChatRoom[]> {
     try {
@@ -395,18 +452,18 @@ export class ChatService {
       const cached = this.userRoomsCache.get("public");
       if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
         // Still need to fetch private rooms for this user
-        const privateRooms = await this.getPrivateRooms(userId);
+        const privateRooms = await this.getPrivateRoomsByParticipant(userId);
         const allRooms = [...cached.rooms, ...privateRooms];
         return allRooms.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
       }
 
       const roomsMap = new Map<string, ChatRoom>();
 
-      // Query 1: Get public rooms (group and channel) - visible to everyone
+      // Query 1: Get public rooms - visible to everyone
       try {
         const publicRoomsSnapshot = await firestore
           .collection(this.ROOMS_COLLECTION)
-          .where("type", "in", ["group", "channel"])
+          .where("visibility", "==", "public")
           .orderBy("updatedAt", "desc")
           .get();
 
@@ -417,6 +474,8 @@ export class ChatService {
             name: data.name || "",
             description: data.description,
             type: data.type || "group",
+            visibility: data.visibility || "public",
+            code: data.code,
             participants: data.participants || [],
             createdBy: data.createdBy || "",
             createdAt: this.convertToDate(data.createdAt),
@@ -430,7 +489,7 @@ export class ChatService {
           console.warn("Index not found for public rooms, trying without orderBy");
           const publicRoomsSnapshot = await firestore
             .collection(this.ROOMS_COLLECTION)
-            .where("type", "in", ["group", "channel"])
+            .where("visibility", "==", "public")
             .get();
 
           publicRoomsSnapshot.forEach((doc) => {
@@ -440,6 +499,8 @@ export class ChatService {
               name: data.name || "",
               description: data.description,
               type: data.type || "group",
+              visibility: data.visibility || "public",
+              code: data.code,
               participants: data.participants || [],
               createdBy: data.createdBy || "",
               createdAt: this.convertToDate(data.createdAt),
@@ -452,64 +513,18 @@ export class ChatService {
         }
       }
 
-      // Query 2: Get private rooms (direct) where user is a participant
-      try {
-        const privateRoomsSnapshot = await firestore
-          .collection(this.ROOMS_COLLECTION)
-          .where("type", "==", "direct")
-          .where("participants", "array-contains", userId)
-          .orderBy("updatedAt", "desc")
-          .get();
-
-        privateRoomsSnapshot.forEach((doc) => {
-          const data = doc.data();
-          const room: ChatRoom = {
-            id: doc.id,
-            name: data.name || "",
-            description: data.description,
-            type: data.type || "direct",
-            participants: data.participants || [],
-            createdBy: data.createdBy || "",
-            createdAt: this.convertToDate(data.createdAt),
-            updatedAt: this.convertToDate(data.updatedAt)
-          };
-          roomsMap.set(doc.id, room);
-        });
-      } catch (privateError) {
-        // Fallback: try without orderBy if index is missing
-        if (privateError instanceof Error && privateError.message.includes("index")) {
-          console.warn("Index not found for private rooms, trying without orderBy");
-          const privateRoomsSnapshot = await firestore
-            .collection(this.ROOMS_COLLECTION)
-            .where("type", "==", "direct")
-            .where("participants", "array-contains", userId)
-            .get();
-
-          privateRoomsSnapshot.forEach((doc) => {
-            const data = doc.data();
-            const room: ChatRoom = {
-              id: doc.id,
-              name: data.name || "",
-              description: data.description,
-              type: data.type || "direct",
-              participants: data.participants || [],
-              createdBy: data.createdBy || "",
-              createdAt: this.convertToDate(data.createdAt),
-              updatedAt: this.convertToDate(data.updatedAt)
-            };
-            roomsMap.set(doc.id, room);
-          });
-        } else {
-          console.error("Error fetching private rooms:", privateError);
-        }
-      }
+      // Query 2: Get private rooms where user is a participant
+      const privateRooms = await this.getPrivateRoomsByParticipant(userId);
+      privateRooms.forEach((room) => {
+        roomsMap.set(room.id, room);
+      });
 
       // Convert map to array and sort by updatedAt
       const rooms = Array.from(roomsMap.values());
       const sortedRooms = rooms.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 
       // Cache public rooms (shared across all users)
-      const publicRooms = sortedRooms.filter(r => r.type === "group" || r.type === "channel");
+      const publicRooms = sortedRooms.filter(r => r.visibility === "public");
       if (publicRooms.length > 0) {
         this.userRoomsCache.set("public", { rooms: publicRooms, timestamp: Date.now() });
       }
@@ -523,13 +538,13 @@ export class ChatService {
   }
 
   /**
-   * Get private rooms for a user (helper method)
+   * Get private rooms for a user where they are a participant (helper method)
    */
-  private static async getPrivateRooms(userId: string): Promise<ChatRoom[]> {
+  private static async getPrivateRoomsByParticipant(userId: string): Promise<ChatRoom[]> {
     try {
       const privateRoomsSnapshot = await firestore
         .collection(this.ROOMS_COLLECTION)
-        .where("type", "==", "direct")
+        .where("visibility", "==", "private")
         .where("participants", "array-contains", userId)
         .get();
 
@@ -540,7 +555,9 @@ export class ChatService {
           id: doc.id,
           name: data.name || "",
           description: data.description,
-          type: data.type || "direct",
+          type: data.type || "group",
+          visibility: data.visibility || "private",
+          code: data.code,
           participants: data.participants || [],
           createdBy: data.createdBy || "",
           createdAt: this.convertToDate(data.createdAt),
@@ -552,6 +569,56 @@ export class ChatService {
     } catch (error) {
       console.error("Error fetching private rooms:", error);
       return [];
+    }
+  }
+
+  /**
+   * Gets a chat room by code
+   * @param code - Room code to search for
+   * @returns Chat room or null if not found
+   */
+  static async getRoomByCode(code: string): Promise<ChatRoom | null> {
+    try {
+      // Validate code format
+      if (!this.CODE_REGEX.test(code)) {
+        return null;
+      }
+
+      const snapshot = await firestore
+        .collection(this.ROOMS_COLLECTION)
+        .where("code", "==", code.toUpperCase())
+        .where("visibility", "==", "private")
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        return null;
+      }
+
+      const doc = snapshot.docs[0];
+      const data = doc.data();
+
+      const room: ChatRoom = {
+        id: doc.id,
+        name: data?.name || "",
+        description: data?.description,
+        type: data?.type || "group",
+        visibility: data?.visibility || "private",
+        code: data?.code,
+        participants: data?.participants || [],
+        createdBy: data?.createdBy || "",
+        createdAt: this.convertToDate(data?.createdAt),
+        updatedAt: this.convertToDate(data?.updatedAt)
+      };
+
+      // Update cache
+      this.roomCache.set(room.id, { room, timestamp: Date.now() });
+
+      return room;
+    } catch (error) {
+      throw new Error(
+        `Failed to get room by code: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     }
   }
 
