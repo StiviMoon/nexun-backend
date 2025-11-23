@@ -1,12 +1,12 @@
 import { Server as SocketIOServer } from "socket.io";
-import { AuthenticatedSocket } from "../../../../shared/middleware/socketAuthMiddleware";
+import { AuthenticatedSocket } from "../shared/middleware/socketAuthMiddleware";
 import { VideoService } from "../services/videoService";
 import {
   JoinVideoRoomData,
   CreateVideoRoomData,
   VideoSignalData
-} from "../../../../shared/types/video";
-import { Logger } from "../../../../shared/utils/logger";
+} from "../shared/types/video";
+import { Logger } from "../shared/utils/logger";
 
 export class VideoController {
   private io: SocketIOServer;

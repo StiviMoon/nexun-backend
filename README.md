@@ -187,10 +187,30 @@ All services use Firebase Auth for authentication:
 - **REST API**: Include `Authorization: Bearer <token>` header
 - **WebSocket**: Pass token in connection: `auth: { token: '<token>' }`
 
+## 🚀 Deployment
+
+### Render.com Deployment
+
+**Complete deployment guide**: See [`RENDER_DEPLOY_SEPARADO.md`](./RENDER_DEPLOY_SEPARADO.md)
+
+**Quick reference**: See [`RENDER_QUICK_REFERENCE.md`](./RENDER_QUICK_REFERENCE.md)
+
+These guides include:
+- Step-by-step instructions for deploying each service separately
+- Environment variables configuration
+- Health check setup
+- Troubleshooting common issues
+- Cost estimation
+
+**Deployment options:**
+- **Option 1**: Deploy each service separately (recommended for production)
+- **Option 2**: Deploy as a single service (simpler, less scalable)
+
 ## 📖 Additional Documentation
 
 - **Architecture Details**: See `ARCHITECTURE.md`
 - **API Testing**: See `POSTMAN_GUIDE.md`
+- **Deployment Guide**: See `RENDER_DEPLOY_SEPARADO.md`
 
 ## 🛠️ Tech Stack
 

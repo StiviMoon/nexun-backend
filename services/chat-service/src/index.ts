@@ -3,15 +3,17 @@ import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import cors from "cors";
 import * as dotenv from "dotenv";
-import { socketAuthMiddleware, AuthenticatedSocket } from "../../../shared/middleware/socketAuthMiddleware";
+import { socketAuthMiddleware, AuthenticatedSocket } from "./shared/middleware/socketAuthMiddleware";
 import { ChatController } from "./controllers/chatController";
-import { Logger } from "../../../shared/utils/logger";
+import { Logger } from "./shared/utils/logger";
 
 dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
-const PORT = process.env.CHAT_SERVICE_PORT || 3002;
+// Priority: CHAT_SERVICE_PORT > PORT > default (3002)
+// This ensures each service uses its specific port when running individually
+const PORT = process.env.CHAT_SERVICE_PORT || process.env.PORT || 3002;
 // Allow multiple origins or single origin from env
 const CORS_ORIGIN = process.env.CORS_ORIGIN 
   ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())

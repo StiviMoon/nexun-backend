@@ -1,0 +1,13 @@
+{
+  "name": "nexun-chat-service",
+  "version": "1.0.0",
+  "description": "Chat Service for Nexun",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
+

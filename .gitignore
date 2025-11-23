@@ -8,3 +8,6 @@ dist/
 # Firebase Admin SDK - NO subir a git por seguridad
 *-firebase-adminsdk-*.json
 firebase-adminsdk-*.json
+
+# Copied shared files (generated during build)
+services/*/src/shared/
