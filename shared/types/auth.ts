@@ -22,6 +22,9 @@ export interface UserProfile {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  age?: number | null;
   providerIds: string[];
   emailVerified: boolean;
   createdAt: string;
@@ -42,5 +45,17 @@ export interface DecodedToken {
   picture?: string;
   iat?: number;
   exp?: number;
+}
+
+export interface UpdateProfileRequest {
+  firstName?: string;
+  lastName?: string;
+  age?: number;
+  displayName?: string;
+}
+
+export interface UpdatePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
 }
 
