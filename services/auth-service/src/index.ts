@@ -2,12 +2,14 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import * as dotenv from "dotenv";
 import authRoutes from "./routes/authRoutes";
-import { Logger } from "../../../shared/utils/logger";
+import { Logger } from "./shared/utils/logger";
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.AUTH_SERVICE_PORT || 3001;
+// Priority: AUTH_SERVICE_PORT > PORT > default (3001)
+// This ensures each service uses its specific port when running individually
+const PORT = process.env.AUTH_SERVICE_PORT || process.env.PORT || 3001;
 // Allow multiple origins or single origin from env
 const CORS_ORIGIN = process.env.CORS_ORIGIN 
   ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())

@@ -1,5 +1,5 @@
-import { auth, firestore } from "../../../../shared/config/firebase";
-import { UserProfile } from "../../../../shared/types/auth";
+import { auth, firestore } from "../shared/config/firebase";
+import { UserProfile } from "../shared/types/auth";
 import * as admin from "firebase-admin";
 
 export class AuthService {

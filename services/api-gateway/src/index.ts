@@ -6,13 +6,15 @@ import swaggerUi from "swagger-ui-express";
 import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as path from "path";
-import { Logger } from "../../../shared/utils/logger";
+import { Logger } from "./shared/utils/logger";
 
 dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
-const PORT = process.env.GATEWAY_PORT || 3000;
+// Priority: GATEWAY_PORT > PORT > default (3000)
+// This ensures the gateway uses its specific port when running individually
+const PORT = process.env.GATEWAY_PORT || process.env.PORT || 3000;
 // Allow multiple origins or single origin from env
 const CORS_ORIGIN = process.env.CORS_ORIGIN 
   ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())

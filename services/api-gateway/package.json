@@ -1,0 +1,13 @@
+{
+  "name": "nexun-api-gateway",
+  "version": "1.0.0",
+  "description": "API Gateway for Nexun",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json && cp -r src/views dist/ 2>/dev/null || true",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
+

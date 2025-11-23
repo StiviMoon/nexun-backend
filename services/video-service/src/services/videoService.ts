@@ -1,5 +1,5 @@
-import { firestore } from "../../../../shared/config/firebase";
-import { VideoRoom, VideoParticipant, CreateVideoRoomData } from "../../../../shared/types/video";
+import { firestore } from "../shared/config/firebase";
+import { VideoRoom, VideoParticipant, CreateVideoRoomData } from "../shared/types/video";
 import * as admin from "firebase-admin";
 
 export class VideoService {

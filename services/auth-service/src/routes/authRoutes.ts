@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { AuthService } from "../services/authService";
-import { AuthResponse, RegisterRequest, LoginRequest, GoogleAuthRequest, VerifyTokenRequest } from "../../../../shared/types/auth";
-import { authenticateToken, AuthenticatedRequest } from "../../../../shared/middleware/authMiddleware";
+import { AuthResponse, RegisterRequest, LoginRequest, GoogleAuthRequest, VerifyTokenRequest } from "../shared/types/auth";
+import { authenticateToken, AuthenticatedRequest } from "../shared/middleware/authMiddleware";
 import { z } from "zod";
 
 const router = Router();
