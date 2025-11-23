@@ -240,7 +240,6 @@ export class AuthService {
         throw new Error("Cannot update profile for Google-authenticated users");
       }
 
-      const userRecord = await auth.getUser(uid);
       const updateFields: admin.auth.UpdateRequest = {};
 
       // Update displayName in Firebase Auth if provided
