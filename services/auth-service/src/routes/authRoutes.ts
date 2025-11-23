@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { AuthService } from "../services/authService";
-import { AuthResponse, RegisterRequest, LoginRequest, GoogleAuthRequest, VerifyTokenRequest } from "../shared/types/auth";
+import { AuthResponse, RegisterRequest, LoginRequest, GoogleAuthRequest, VerifyTokenRequest, UpdateProfileRequest, UpdatePasswordRequest } from "../shared/types/auth";
 import { authenticateToken, AuthenticatedRequest } from "../shared/middleware/authMiddleware";
 import { z } from "zod";
 
@@ -23,6 +23,18 @@ const googleAuthSchema = z.object({
 
 const verifyTokenSchema = z.object({
   idToken: z.string().min(1, "ID token is required")
+});
+
+const updateProfileSchema = z.object({
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+  age: z.number().int().min(0).max(150).optional(),
+  displayName: z.string().optional()
+});
+
+const updatePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string().min(6, "New password must be at least 6 characters")
 });
 
 /**
@@ -245,6 +257,131 @@ router.get("/me", authenticateToken, async (req: AuthenticatedRequest, res: Resp
     const errorMessage = error instanceof Error ? error.message : "Failed to get user profile";
     
     res.status(500).json({
+      success: false,
+      error: errorMessage
+    });
+  }
+});
+
+/**
+ * @route PUT /auth/profile
+ * @desc Update user profile (name, lastName, age, displayName)
+ * @access Private
+ * @note Only available for non-Google authenticated users
+ */
+router.put("/profile", authenticateToken, async (req: AuthenticatedRequest, res: Response<AuthResponse>) => {
+  try {
+    if (!req.user?.uid) {
+      res.status(401).json({
+        success: false,
+        error: "Unauthorized"
+      });
+      return;
+    }
+
+    const validationResult = updateProfileSchema.safeParse(req.body as UpdateProfileRequest);
+
+    if (!validationResult.success) {
+      res.status(400).json({
+        success: false,
+        error: validationResult.error.errors[0]?.message || "Invalid request data"
+      });
+      return;
+    }
+
+    const updateData = validationResult.data;
+
+    // Check if at least one field is provided
+    if (Object.keys(updateData).length === 0) {
+      res.status(400).json({
+        success: false,
+        error: "At least one field must be provided for update"
+      });
+      return;
+    }
+
+    const updatedProfile = await AuthService.updateUserProfile(req.user.uid, updateData);
+
+    res.status(200).json({
+      success: true,
+      user: updatedProfile
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to update profile";
+    
+    // Check if it's a Google user error
+    if (errorMessage.includes("Google-authenticated")) {
+      res.status(403).json({
+        success: false,
+        error: errorMessage
+      });
+      return;
+    }
+
+    res.status(400).json({
+      success: false,
+      error: errorMessage
+    });
+  }
+});
+
+/**
+ * @route PUT /auth/password
+ * @desc Update user password
+ * @access Private
+ * @note Only available for non-Google authenticated users
+ */
+router.put("/password", authenticateToken, async (req: AuthenticatedRequest, res: Response<AuthResponse>) => {
+  try {
+    if (!req.user?.uid) {
+      res.status(401).json({
+        success: false,
+        error: "Unauthorized"
+      });
+      return;
+    }
+
+    const validationResult = updatePasswordSchema.safeParse(req.body as UpdatePasswordRequest);
+
+    if (!validationResult.success) {
+      res.status(400).json({
+        success: false,
+        error: validationResult.error.errors[0]?.message || "Invalid request data"
+      });
+      return;
+    }
+
+    const { newPassword } = validationResult.data;
+
+    // Note: Current password verification should be done client-side
+    // The backend only updates the password if the user is authenticated
+    await AuthService.updateUserPassword(req.user.uid, newPassword);
+
+    res.status(200).json({
+      success: true
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to update password";
+    
+    // Check if it's a Google user error
+    if (errorMessage.includes("Google-authenticated")) {
+      res.status(403).json({
+        success: false,
+        error: errorMessage
+      });
+      return;
+    }
+
+    // Check if it's a weak password error
+    if (errorMessage.includes("weak-password")) {
+      res.status(400).json({
+        success: false,
+        error: errorMessage
+      });
+      return;
+    }
+
+    res.status(400).json({
       success: false,
       error: errorMessage
     });
