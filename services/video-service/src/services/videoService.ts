@@ -140,7 +140,7 @@ export class VideoService {
       }
 
       // Check if room is full
-      if (room.participants.length >= room.maxParticipants) {
+      if (room.participants.length >= (room.maxParticipants || 50)) {
         throw new Error("Room is full");
       }
 
