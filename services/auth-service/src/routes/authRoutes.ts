@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { AuthService } from "../services/authService";
-import { AuthResponse, RegisterRequest, LoginRequest, GoogleAuthRequest, VerifyTokenRequest, UpdateProfileRequest, UpdatePasswordRequest } from "../shared/types/auth";
+import { AuthResponse, RegisterRequest, LoginRequest, GoogleAuthRequest, GithubAuthRequest, VerifyTokenRequest, UpdateProfileRequest, UpdatePasswordRequest } from "../shared/types/auth";
 import { authenticateToken, AuthenticatedRequest } from "../shared/middleware/authMiddleware";
 import { z } from "zod";
 
@@ -18,6 +18,10 @@ const loginSchema = z.object({
 });
 
 const googleAuthSchema = z.object({
+  idToken: z.string().min(1, "ID token is required")
+});
+
+const githubAuthSchema = z.object({
   idToken: z.string().min(1, "ID token is required")
 });
 
@@ -141,6 +145,52 @@ router.post("/google", async (req: Request<{}, AuthResponse, GoogleAuthRequest>,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Failed to authenticate with Google";
+    
+    res.status(401).json({
+      success: false,
+      error: errorMessage
+    });
+  }
+});
+
+/**
+ * @route POST /auth/github
+ * @desc Authenticate with GitHub OAuth
+ * @access Public
+ */
+router.post("/github", async (req: Request<{}, AuthResponse, GithubAuthRequest>, res: Response<AuthResponse>) => {
+  try {
+    const validationResult = githubAuthSchema.safeParse(req.body);
+
+    if (!validationResult.success) {
+      res.status(400).json({
+        success: false,
+        error: validationResult.error.errors[0]?.message || "Invalid request data"
+      });
+      return;
+    }
+
+    const { idToken } = validationResult.data;
+
+    const decodedToken = await AuthService.verifyIdToken(idToken);
+    const signInProvider = decodedToken.firebase?.sign_in_provider;
+
+    if (signInProvider !== "github.com") {
+      res.status(400).json({
+        success: false,
+        error: "Invalid provider. Expected GitHub sign-in token."
+      });
+      return;
+    }
+
+    const userProfile = await AuthService.saveUserProfile(decodedToken);
+
+    res.status(200).json({
+      success: true,
+      user: userProfile
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to authenticate with GitHub";
     
     res.status(401).json({
       success: false,
