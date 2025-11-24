@@ -13,6 +13,10 @@ export interface GoogleAuthRequest {
   idToken: string;
 }
 
+export interface GithubAuthRequest {
+  idToken: string;
+}
+
 export interface VerifyTokenRequest {
   idToken: string;
 }
