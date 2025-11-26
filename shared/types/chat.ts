@@ -30,6 +30,8 @@ export interface ChatRoom {
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
+  videoRoomId?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface SocketUser {
@@ -57,6 +59,7 @@ export interface CreateRoomData {
   type: "direct" | "group" | "channel";
   visibility: "public" | "private";
   participants?: string[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface JoinByCodeData {

@@ -138,8 +138,11 @@ export class ChatController {
         return;
       }
 
-      // Verify code for private rooms
-      if (room.visibility === "private") {
+      // Check if user is a participant FIRST (before code verification)
+      const isParticipant = await ChatService.isParticipant(roomId, socket.user.uid);
+
+      // Verify code for private rooms (only if user is not already a participant)
+      if (room.visibility === "private" && !isParticipant) {
         if (!code) {
           socket.emit("error", {
             message: "Code required for private rooms",
@@ -156,9 +159,6 @@ export class ChatController {
           return;
         }
       }
-
-      // Check if user is a participant
-      const isParticipant = await ChatService.isParticipant(roomId, socket.user.uid);
 
       // Add user as participant if not already
       if (!isParticipant) {

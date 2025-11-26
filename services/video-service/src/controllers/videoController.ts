@@ -115,7 +115,9 @@ export class VideoController {
     }
 
     try {
+      this.logger.info(`Creating video room: ${data.name} by user ${socket.user.uid}`);
       const room = await VideoService.createRoom(data, socket.user.uid);
+      this.logger.info(`Video room created successfully: ${room.id}, code: ${room.code}, chatRoomId: ${room.chatRoomId || 'none'}`);
 
       // Track user in room
       if (!this.connectedUsers.has(socket.user.uid)) {
@@ -126,12 +128,20 @@ export class VideoController {
       // Join socket room
       await socket.join(room.id);
 
-      // Add participant
-      await VideoService.addParticipant(room.id, socket.user.uid, socket.id);
+      // Add participant with user info
+      await VideoService.addParticipant(
+        room.id,
+        socket.user.uid,
+        socket.id,
+        socket.user.name || undefined,
+        socket.user.email || undefined
+      );
 
+      this.logger.info(`Emitting video:room:created event to socket ${socket.id}`);
       socket.emit("video:room:created", room);
       this.logger.info(`Video room ${room.id} created by ${socket.user.uid}`);
     } catch (error) {
+      this.logger.error(`Failed to create video room: ${error instanceof Error ? error.message : "Unknown error"}`);
       socket.emit("error", {
         message: error instanceof Error ? error.message : "Failed to create room",
         code: "CREATE_ROOM_ERROR"
@@ -154,51 +164,84 @@ export class VideoController {
     }
 
     try {
-      const { roomId } = data;
+      const { roomId, code } = data;
 
-      // Verify room exists
-      const room = await VideoService.getRoom(roomId);
+      // Buscar sala por código o por ID
+      let room = null;
+      if (code) {
+        room = await VideoService.getRoomByCode(code);
+      } else if (roomId) {
+        room = await VideoService.getRoom(roomId);
+      }
+
       if (!room) {
         socket.emit("error", { message: "Room not found", code: "ROOM_NOT_FOUND" });
         return;
       }
 
-      // Check if room is full
-      if (room.participants.length >= (room.maxParticipants || 50)) {
-        socket.emit("error", { message: "Room is full", code: "ROOM_FULL" });
+      const actualRoomId = room.id;
+
+      if (room.participants.length >= (room.maxParticipants || 4)) {
+        socket.emit("error", { message: "Room is full (máximo 4 personas)", code: "ROOM_FULL" });
         return;
       }
 
-      // Track user in room
       if (!this.connectedUsers.has(socket.user.uid)) {
         this.connectedUsers.set(socket.user.uid, new Map());
       }
-      this.connectedUsers.get(socket.user.uid)?.set(roomId, socket.id);
+      this.connectedUsers.get(socket.user.uid)?.set(actualRoomId, socket.id);
 
-      // Join socket room
-      await socket.join(roomId);
+      await socket.join(actualRoomId);
 
-      // Add participant
-      await VideoService.addParticipant(roomId, socket.user.uid, socket.id);
+      await VideoService.addParticipant(
+        actualRoomId,
+        socket.user.uid,
+        socket.id,
+        socket.user.name || undefined,
+        socket.user.email || undefined
+      );
 
-      // Get existing participants
-      const participants = await VideoService.getRoomParticipants(roomId);
+      // Si la sala tiene un chat asociado, agregar al participante al chat
+      if (room.chatRoomId) {
+        try {
+          const { firestore } = require("../shared/config/firebase");
+          const chatRoomRef = firestore.collection("rooms").doc(room.chatRoomId);
+          const chatRoomDoc = await chatRoomRef.get();
+          
+          if (chatRoomDoc.exists) {
+            const chatRoomData = chatRoomDoc.data();
+            const participants = chatRoomData?.participants || [];
+            
+            // Agregar al participante si no está ya en la lista
+            if (!participants.includes(socket.user.uid)) {
+              await chatRoomRef.update({
+                participants: [...participants, socket.user.uid],
+                updatedAt: require("firebase-admin").firestore.FieldValue.serverTimestamp()
+              });
+              this.logger.info(`User ${socket.user.uid} added to chat room ${room.chatRoomId}`);
+            }
+          }
+        } catch (chatError) {
+          // Si falla, continuar sin el chat (no crítico)
+          this.logger.warn(`Failed to add user to chat room: ${chatError instanceof Error ? chatError.message : "Unknown error"}`);
+        }
+      }
 
-      // Notify others in the room
-      socket.to(roomId).emit("video:user:joined", {
-        roomId,
+      const participants = await VideoService.getRoomParticipants(actualRoomId);
+
+      socket.to(actualRoomId).emit("video:user:joined", {
+        roomId: actualRoomId,
         userId: socket.user.uid,
         userName: socket.user.name
       });
 
-      // Send room info and existing participants to the new user
       socket.emit("video:room:joined", {
-        roomId,
+        roomId: actualRoomId,
         room,
         participants
       });
 
-      this.logger.info(`User ${socket.user.uid} joined video room ${roomId}`);
+      this.logger.info(`User ${socket.user.uid} joined room ${actualRoomId} (code: ${room.code})`);
     } catch (error) {
       socket.emit("error", {
         message: error instanceof Error ? error.message : "Failed to join room",
@@ -219,11 +262,25 @@ export class VideoController {
     }
 
     try {
-      const { roomId } = data;
-      await this.leaveRoom(socket.user.uid, roomId);
+      const { roomId, code } = data;
+      
+      let actualRoomId = roomId;
+      if (!actualRoomId && code) {
+        const room = await VideoService.getRoomByCode(code);
+        if (room) {
+          actualRoomId = room.id;
+        }
+      }
+
+      if (!actualRoomId) {
+        return;
+      }
+
+      await socket.leave(actualRoomId);
+      await this.leaveRoom(socket.user.uid, actualRoomId);
 
       socket.emit("video:room:left", { roomId });
-      this.logger.info(`User ${socket.user.uid} left video room ${roomId}`);
+      this.logger.info(`User ${socket.user.uid} left video room ${actualRoomId}`);
     } catch (error) {
       socket.emit("error", {
         message: error instanceof Error ? error.message : "Failed to leave room",

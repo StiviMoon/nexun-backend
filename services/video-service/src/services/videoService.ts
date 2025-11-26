@@ -51,14 +51,67 @@ export class VideoService {
       const roomId = firestore.collection(this.VIDEO_ROOMS_COLLECTION).doc().id;
       const now = new Date();
 
+      // Siempre generar código único de 6 caracteres para todas las salas
+      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      let roomCode = "";
+      for (let i = 0; i < 6; i++) {
+        roomCode += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+
+      // Crear chat privado asociado si se solicita
+      let chatRoomId: string | undefined;
+      let chatRoomCode: string | undefined;
+      if (data.createChat) {
+        try {
+          const chatRoomIdDoc = firestore.collection("rooms").doc();
+          chatRoomId = chatRoomIdDoc.id;
+          
+          // Generar código para el chat privado
+          let chatCode = "";
+          for (let i = 0; i < 6; i++) {
+            chatCode += chars.charAt(Math.floor(Math.random() * chars.length));
+          }
+          chatRoomCode = chatCode;
+
+          const chatRoom = {
+            id: chatRoomId,
+            name: `${data.name} - Chat`,
+            description: `Chat privado para la reunión: ${data.name}`,
+            type: "group",
+            visibility: "private",
+            code: chatCode,
+            participants: [hostId],
+            createdBy: hostId,
+            videoRoomId: roomId,
+            metadata: {
+              videoRoomId: roomId,
+              isVideoMeeting: true,
+            },
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          };
+
+          await chatRoomIdDoc.set(chatRoom);
+          console.log(`✅ Chat room created: ${chatRoomId} (code: ${chatCode}) for video room: ${roomId}`);
+        } catch (chatError) {
+          // Si falla la creación del chat, continuar sin él (no crítico)
+          console.warn(`⚠️ Failed to create associated chat room (continuing without chat): ${chatError instanceof Error ? chatError.message : "Unknown error"}`);
+          // No lanzar error, continuar sin chat
+        }
+      }
+
       const room: VideoRoom = {
         id: roomId,
         name: data.name,
         description: data.description,
         hostId,
         participants: [hostId],
-        maxParticipants: data.maxParticipants || 50,
+        maxParticipants: data.maxParticipants || 4, // Máximo 4 personas por defecto
         isRecording: false,
+        visibility: data.visibility || "public",
+        code: roomCode, // Siempre generar código
+        chatRoomId, // ID del chat asociado
+        chatRoomCode, // Código del chat asociado
         createdAt: now,
         updatedAt: now
       };
@@ -78,6 +131,47 @@ export class VideoService {
     } catch (error) {
       throw new Error(
         `Failed to create video room: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    }
+  }
+
+  /**
+   * Gets a video room by code
+   * @param code - Room code to retrieve
+   * @returns Video room or null if not found
+   */
+  static async getRoomByCode(code: string): Promise<VideoRoom | null> {
+    try {
+      const snapshot = await firestore
+        .collection(this.VIDEO_ROOMS_COLLECTION)
+        .where("code", "==", code)
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        return null;
+      }
+
+      const roomDoc = snapshot.docs[0];
+      const data = roomDoc.data();
+      return {
+        id: roomDoc.id,
+        name: data?.name || "",
+        description: data?.description,
+        hostId: data?.hostId || "",
+        participants: data?.participants || [],
+        maxParticipants: data?.maxParticipants || 4,
+        isRecording: data?.isRecording || false,
+        visibility: data?.visibility || "public",
+        code: data?.code,
+        chatRoomId: data?.chatRoomId,
+        chatRoomCode: data?.chatRoomCode,
+        createdAt: this.convertToDate(data?.createdAt),
+        updatedAt: this.convertToDate(data?.updatedAt)
+      };
+    } catch (error) {
+      throw new Error(
+        `Failed to get video room by code: ${error instanceof Error ? error.message : "Unknown error"}`
       );
     }
   }
@@ -107,6 +201,10 @@ export class VideoService {
         participants: data?.participants || [],
         maxParticipants: data?.maxParticipants || 50,
         isRecording: data?.isRecording || false,
+        visibility: data?.visibility || "public",
+        code: data?.code,
+        chatRoomId: data?.chatRoomId,
+        chatRoomCode: data?.chatRoomCode,
         createdAt: this.convertToDate(data?.createdAt),
         updatedAt: this.convertToDate(data?.updatedAt)
       };
@@ -122,12 +220,16 @@ export class VideoService {
    * @param roomId - Room ID
    * @param userId - User ID to add
    * @param socketId - Socket ID for WebRTC signaling
+   * @param userName - User name (optional)
+   * @param userEmail - User email (optional)
    * @throws Error if room is full or not found
    */
   static async addParticipant(
     roomId: string,
     userId: string,
-    socketId: string
+    socketId: string,
+    userName?: string,
+    userEmail?: string
   ): Promise<void> {
     try {
       const roomRef = firestore
@@ -160,6 +262,8 @@ export class VideoService {
           roomId,
           userId,
           socketId,
+          userName: userName || null,
+          userEmail: userEmail || null,
           isAudioEnabled: true,
           isVideoEnabled: true,
           isScreenSharing: false,
@@ -222,6 +326,8 @@ export class VideoService {
       return {
         userId: data?.userId || "",
         socketId: data?.socketId || "",
+        userName: data?.userName || undefined,
+        userEmail: data?.userEmail || undefined,
         isAudioEnabled: data?.isAudioEnabled ?? true,
         isVideoEnabled: data?.isVideoEnabled ?? true,
         isScreenSharing: data?.isScreenSharing ?? false,
@@ -268,6 +374,8 @@ export class VideoService {
         participants.push({
           userId: data.userId,
           socketId: data.socketId,
+          userName: data.userName || undefined,
+          userEmail: data.userEmail || undefined,
           isAudioEnabled: data.isAudioEnabled ?? true,
           isVideoEnabled: data.isVideoEnabled ?? true,
           isScreenSharing: data.isScreenSharing ?? false,
