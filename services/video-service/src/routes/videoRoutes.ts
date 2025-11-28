@@ -24,12 +24,12 @@ router.get(
         });
       }
 
-      res.json({
+      return res.json({
         success: true,
         data: room
       });
     } catch (error) {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : "Failed to get room"
       });
@@ -49,12 +49,12 @@ router.get(
       const { roomId } = req.params;
       const participants = await VideoService.getRoomParticipants(roomId);
 
-      res.json({
+      return res.json({
         success: true,
         data: participants
       });
     } catch (error) {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : "Failed to get participants"
       });
