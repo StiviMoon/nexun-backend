@@ -322,5 +322,33 @@ export class AuthService {
       throw new Error("Failed to update password");
     }
   }
+
+  /**
+   * Deletes a user account from Firebase Auth and Firestore
+   * @param uid - User ID to delete
+   * @returns Success status
+   * @throws Error if user not found or deletion fails
+   */
+  static async deleteUser(uid: string): Promise<void> {
+    try {
+      // Verify user exists
+      await auth.getUser(uid);
+
+      // Delete user document from Firestore
+      const userDocRef = firestore.collection("users").doc(uid);
+      await userDocRef.delete();
+
+      // Delete user from Firebase Auth
+      await auth.deleteUser(uid);
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message.includes("user-not-found")) {
+          throw new Error("auth/user-not-found");
+        }
+        throw error;
+      }
+      throw new Error("Failed to delete user account");
+    }
+  }
 }
 

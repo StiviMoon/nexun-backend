@@ -128,7 +128,9 @@ export class ChatService {
           : [createdBy],
         createdBy,
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
+        metadata: data.metadata,
+        videoRoomId: typeof data.metadata?.videoRoomId === "string" ? String(data.metadata.videoRoomId) : undefined,
       };
 
       const roomToSave = {
@@ -200,7 +202,9 @@ export class ChatService {
         participants: data?.participants || [],
         createdBy: data?.createdBy || "",
         createdAt: this.convertToDate(data?.createdAt),
-        updatedAt: this.convertToDate(data?.updatedAt)
+        updatedAt: this.convertToDate(data?.updatedAt),
+        metadata: data?.metadata,
+        videoRoomId: data?.videoRoomId
       };
 
       // Update cache
@@ -479,7 +483,9 @@ export class ChatService {
             participants: data.participants || [],
             createdBy: data.createdBy || "",
             createdAt: this.convertToDate(data.createdAt),
-            updatedAt: this.convertToDate(data.updatedAt)
+            updatedAt: this.convertToDate(data.updatedAt),
+            metadata: data.metadata,
+            videoRoomId: data.videoRoomId,
           };
           roomsMap.set(doc.id, room);
         });
@@ -504,7 +510,9 @@ export class ChatService {
               participants: data.participants || [],
               createdBy: data.createdBy || "",
               createdAt: this.convertToDate(data.createdAt),
-              updatedAt: this.convertToDate(data.updatedAt)
+              updatedAt: this.convertToDate(data.updatedAt),
+              metadata: data.metadata,
+              videoRoomId: data.videoRoomId,
             };
             roomsMap.set(doc.id, room);
           });
@@ -561,7 +569,9 @@ export class ChatService {
           participants: data.participants || [],
           createdBy: data.createdBy || "",
           createdAt: this.convertToDate(data.createdAt),
-          updatedAt: this.convertToDate(data.updatedAt)
+          updatedAt: this.convertToDate(data.updatedAt),
+          metadata: data.metadata,
+          videoRoomId: data.videoRoomId,
         } as ChatRoom);
       });
 
@@ -608,7 +618,9 @@ export class ChatService {
         participants: data?.participants || [],
         createdBy: data?.createdBy || "",
         createdAt: this.convertToDate(data?.createdAt),
-        updatedAt: this.convertToDate(data?.updatedAt)
+        updatedAt: this.convertToDate(data?.updatedAt),
+        metadata: data?.metadata,
+        videoRoomId: data?.videoRoomId,
       };
 
       // Update cache

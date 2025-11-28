@@ -438,5 +438,44 @@ router.put("/password", authenticateToken, async (req: AuthenticatedRequest, res
   }
 });
 
+/**
+ * @route DELETE /auth/account
+ * @desc Delete user account (Firebase Auth + Firestore)
+ * @access Private
+ */
+router.delete("/account", authenticateToken, async (req: AuthenticatedRequest, res: Response<AuthResponse>) => {
+  try {
+    if (!req.user?.uid) {
+      res.status(401).json({
+        success: false,
+        error: "Unauthorized"
+      });
+      return;
+    }
+
+    await AuthService.deleteUser(req.user.uid);
+
+    res.status(200).json({
+      success: true
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to delete account";
+    
+    // Check if user not found
+    if (errorMessage.includes("user-not-found")) {
+      res.status(404).json({
+        success: false,
+        error: errorMessage
+      });
+      return;
+    }
+
+    res.status(500).json({
+      success: false,
+      error: errorMessage
+    });
+  }
+});
+
 export default router;
 

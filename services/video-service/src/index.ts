@@ -6,6 +6,7 @@ import * as dotenv from "dotenv";
 import { socketAuthMiddleware, AuthenticatedSocket } from "./shared/middleware/socketAuthMiddleware";
 import { VideoController } from "./controllers/videoController";
 import { Logger } from "./shared/utils/logger";
+import videoRoutes from "./routes/videoRoutes";
 
 dotenv.config();
 
@@ -51,6 +52,9 @@ app.use(
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// API Routes
+app.use("/api/video", videoRoutes);
 
 // Health check endpoint
 app.get("/health", (_req: Request, res: Response) => {
