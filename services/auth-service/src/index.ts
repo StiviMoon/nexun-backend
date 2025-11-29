@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import * as dotenv from "dotenv";
 import authRoutes from "./routes/authRoutes";
-import { Logger } from "./shared/utils/logger";
+import { Logger } from "../../../shared/utils/logger";
 
 dotenv.config();
 

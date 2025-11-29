@@ -3,8 +3,9 @@
   "compilerOptions": {
     "outDir": "./dist",
     "baseUrl": ".",
-    "composite": false,
-    "skipLibCheck": true
+    "composite": true,
+    "skipLibCheck": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

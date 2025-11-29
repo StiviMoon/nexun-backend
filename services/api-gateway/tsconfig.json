@@ -4,7 +4,10 @@
     "outDir": "./dist",
     "baseUrl": ".",
     "composite": false,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "@shared/*": ["../../../shared/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

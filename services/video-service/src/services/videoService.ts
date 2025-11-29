@@ -1,5 +1,5 @@
-import { firestore } from "../shared/config/firebase";
-import { VideoRoom, VideoParticipant, CreateVideoRoomData } from "../shared/types/video";
+import { firestore } from "../../../../shared/config/firebase";
+import { VideoRoom, VideoParticipant, CreateVideoRoomData } from "../../../../shared/types/video";
 import * as admin from "firebase-admin";
 
 export class VideoService {
@@ -38,10 +38,10 @@ export class VideoService {
 
   /**
    * Creates a new video room in Firestore
-   * @param data - Room creation data (name, description, maxParticipants)
-   * @param hostId - User ID of the room host
-   * @returns Created video room
-   * @throws Error if room creation fails
+   * param data - Room creation data (name, description, maxParticipants)
+   * param hostId - User ID of the room host
+   * returns Created video room
+   * throws Error if room creation fails
    */
   static async createRoom(
     data: CreateVideoRoomData,
@@ -137,8 +137,8 @@ export class VideoService {
 
   /**
    * Gets a video room by code
-   * @param code - Room code to retrieve
-   * @returns Video room or null if not found
+   * param code - Room code to retrieve
+   * returns Video room or null if not found
    */
   static async getRoomByCode(code: string): Promise<VideoRoom | null> {
     try {
@@ -178,8 +178,8 @@ export class VideoService {
 
   /**
    * Gets a video room by ID
-   * @param roomId - Room ID to retrieve
-   * @returns Video room or null if not found
+   * param roomId - Room ID to retrieve
+   * returns Video room or null if not found
    */
   static async getRoom(roomId: string): Promise<VideoRoom | null> {
     try {
@@ -217,12 +217,12 @@ export class VideoService {
 
   /**
    * Adds a participant to a video room
-   * @param roomId - Room ID
-   * @param userId - User ID to add
-   * @param socketId - Socket ID for WebRTC signaling
-   * @param userName - User name (optional)
-   * @param userEmail - User email (optional)
-   * @throws Error if room is full or not found
+   * param roomId - Room ID
+   * param userId - User ID to add
+   * param socketId - Socket ID for WebRTC signaling
+   * param userName - User name (optional)
+   * param userEmail - User email (optional)
+   * throws Error if room is full or not found
    */
   static async addParticipant(
     roomId: string,

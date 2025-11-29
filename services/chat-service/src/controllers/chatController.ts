@@ -1,5 +1,5 @@
 import { Server as SocketIOServer } from "socket.io";
-import { AuthenticatedSocket } from "../shared/middleware/socketAuthMiddleware";
+import { AuthenticatedSocket } from "../../../../shared/middleware/socketAuthMiddleware";
 import { ChatService } from "../services/chatService";
 import {
   ChatMessage,
@@ -7,8 +7,8 @@ import {
   SendMessageData,
   CreateRoomData,
   JoinByCodeData
-} from "../shared/types/chat";
-import { Logger } from "../shared/utils/logger";
+} from "../../../../shared/types/chat";
+import { Logger } from "../../../../shared/utils/logger";
 
 export class ChatController {
   private io: SocketIOServer;

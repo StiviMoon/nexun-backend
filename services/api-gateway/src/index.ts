@@ -6,7 +6,7 @@ import swaggerUi from "swagger-ui-express";
 import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as path from "path";
-import { Logger } from "./shared/utils/logger";
+import { Logger } from "../../../shared/utils/logger";
 
 dotenv.config();
 

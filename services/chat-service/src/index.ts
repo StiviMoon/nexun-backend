@@ -3,9 +3,9 @@ import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import cors from "cors";
 import * as dotenv from "dotenv";
-import { socketAuthMiddleware, AuthenticatedSocket } from "./shared/middleware/socketAuthMiddleware";
+import { socketAuthMiddleware, AuthenticatedSocket } from "../../../shared/middleware/socketAuthMiddleware";
 import { ChatController } from "./controllers/chatController";
-import { Logger } from "./shared/utils/logger";
+import { Logger } from "../../../shared/utils/logger";
 
 dotenv.config();
 

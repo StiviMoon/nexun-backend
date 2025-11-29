@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticateToken, AuthenticatedRequest } from "../shared/middleware/authMiddleware";
+import { authenticateToken, AuthenticatedRequest } from "../../../../shared/middleware/authMiddleware";
 import { VideoService } from "../services/videoService";
 import { Response } from "express";
 
@@ -63,4 +63,3 @@ router.get(
 );
 
 export default router;
-
