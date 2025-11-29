@@ -106,7 +106,7 @@ export class VideoService {
         description: data.description,
         hostId,
         participants: [hostId],
-        maxParticipants: data.maxParticipants || 4, // Máximo 4 personas por defecto
+        maxParticipants: data.maxParticipants || 10, // Máximo 10 personas por defecto
         isRecording: false,
         visibility: data.visibility || "public",
         code: roomCode, // Siempre generar código
@@ -160,7 +160,7 @@ export class VideoService {
         description: data?.description,
         hostId: data?.hostId || "",
         participants: data?.participants || [],
-        maxParticipants: data?.maxParticipants || 4,
+        maxParticipants: data?.maxParticipants || 10,
         isRecording: data?.isRecording || false,
         visibility: data?.visibility || "public",
         code: data?.code,
@@ -199,7 +199,7 @@ export class VideoService {
         description: data?.description,
         hostId: data?.hostId || "",
         participants: data?.participants || [],
-        maxParticipants: data?.maxParticipants || 50,
+        maxParticipants: data?.maxParticipants || 10,
         isRecording: data?.isRecording || false,
         visibility: data?.visibility || "public",
         code: data?.code,
@@ -242,7 +242,7 @@ export class VideoService {
       }
 
       // Check if room is full
-      if (room.participants.length >= (room.maxParticipants || 50)) {
+      if (room.participants.length >= (room.maxParticipants || 10)) {
         throw new Error("Room is full");
       }
 
