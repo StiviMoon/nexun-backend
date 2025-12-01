@@ -13,6 +13,7 @@ const SHARED_DIR = path.join(__dirname, '..', 'shared');
 const SHARED_FILES = {
   'config/firebase.ts': true,
   'utils/logger.ts': true,
+  'utils/webrtcConfig.ts': true,
   'middleware/authMiddleware.ts': true,
   'middleware/socketAuthMiddleware.ts': true,
   'types/auth.ts': true,
