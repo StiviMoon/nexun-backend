@@ -38,11 +38,42 @@ export interface CreateVideoRoomData {
   createChat?: boolean; // Si se debe crear un chat asociado
 }
 
+/**
+ * WebRTC Offer/Answer SDP data
+ */
+export interface RTCSessionDescriptionInit {
+  type: "offer" | "answer";
+  sdp: string;
+}
+
+/**
+ * WebRTC ICE Candidate data
+ */
+export interface RTCIceCandidateInit {
+  candidate: string;
+  sdpMLineIndex: number | null;
+  sdpMid: string | null;
+}
+
+/**
+ * Union type for all WebRTC signaling data
+ */
+export type WebRTCSignalData = RTCSessionDescriptionInit | RTCIceCandidateInit;
+
+/**
+ * Video signal data for WebRTC peer-to-peer communication
+ */
 export interface VideoSignalData {
   type: "offer" | "answer" | "ice-candidate";
   roomId: string;
-  targetUserId?: string;
-  data: unknown;
+  targetUserId?: string; // If specified, send to specific user; otherwise broadcast to room
+  data: WebRTCSignalData;
+  metadata?: {
+    hasVideo?: boolean;
+    hasAudio?: boolean;
+    videoEnabled?: boolean;
+    audioEnabled?: boolean;
+  };
 }
 
 export interface VideoError {
