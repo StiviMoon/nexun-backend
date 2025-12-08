@@ -73,6 +73,8 @@ export interface VideoSignalData {
     hasAudio?: boolean;
     videoEnabled?: boolean;
     audioEnabled?: boolean;
+    isScreenSharing?: boolean; // Indica si la señal es para screen sharing
+    streamType?: "camera" | "screen"; // Tipo de stream: cámara o pantalla
   };
 }
 

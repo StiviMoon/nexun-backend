@@ -1,38 +1,71 @@
 import { firestore } from "../shared/config/firebase";
 import { VideoRoom, VideoParticipant, CreateVideoRoomData } from "../shared/types/video";
+import { Logger } from "../shared/utils/logger";
 import * as admin from "firebase-admin";
 
 export class VideoService {
   private static readonly VIDEO_ROOMS_COLLECTION = "videoRooms";
   private static readonly PARTICIPANTS_COLLECTION = "videoParticipants";
+  private static readonly logger = new Logger("video-service");
+  private static readonly ROOM_CODE_LENGTH = 6;
+
+  /**
+   * Generate a random room code
+   */
+  private static generateRoomCode(): string {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let code = "";
+    for (let i = 0; i < this.ROOM_CODE_LENGTH; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }
+
+  /**
+   * Map Firestore document to VideoRoom object
+   */
+  private static mapRoomData(doc: admin.firestore.DocumentSnapshot): VideoRoom {
+    const data = doc.data();
+      return {
+        id: doc.id,
+        name: data?.name || "",
+        description: data?.description,
+        hostId: data?.hostId || "",
+        participants: data?.participants || [],
+        maxParticipants: data?.maxParticipants || 8,
+        isRecording: data?.isRecording || false,
+        visibility: "public", // Always public
+        code: data?.code,
+        chatRoomId: data?.chatRoomId,
+        chatRoomCode: data?.chatRoomCode,
+        createdAt: this.convertToDate(data?.createdAt),
+        updatedAt: this.convertToDate(data?.updatedAt)
+      };
+  }
 
   /**
    * Convert Firestore timestamp to Date
    */
   private static convertToDate(timestamp: unknown): Date {
-    if (!timestamp) {
-      return new Date();
+    if (!timestamp) return new Date();
+    if (timestamp instanceof Date) return timestamp;
+    
+    if (timestamp && typeof timestamp === "object" && "toDate" in timestamp) {
+      const firestoreTimestamp = timestamp as { toDate: () => Date };
+      if (typeof firestoreTimestamp.toDate === "function") {
+        return firestoreTimestamp.toDate();
+      }
     }
-
-    if (timestamp instanceof Date) {
-      return timestamp;
-    }
-
-    if (timestamp && typeof timestamp === "object" && "toDate" in timestamp && typeof (timestamp as { toDate: () => Date }).toDate === "function") {
-      return (timestamp as { toDate: () => Date }).toDate();
-    }
-
+    
     if (typeof timestamp === "number") {
       return timestamp > 1e12 ? new Date(timestamp) : new Date(timestamp * 1000);
     }
-
+    
     if (typeof timestamp === "string") {
       const parsed = new Date(timestamp);
-      if (!isNaN(parsed.getTime())) {
-        return parsed;
-      }
+      if (!isNaN(parsed.getTime())) return parsed;
     }
-
+    
     return new Date();
   }
 
@@ -49,29 +82,15 @@ export class VideoService {
   ): Promise<VideoRoom> {
     try {
       const roomId = firestore.collection(this.VIDEO_ROOMS_COLLECTION).doc().id;
-      const now = new Date();
-
-      // Siempre generar código único de 6 caracteres para todas las salas
-      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-      let roomCode = "";
-      for (let i = 0; i < 6; i++) {
-        roomCode += chars.charAt(Math.floor(Math.random() * chars.length));
-      }
-
-      // Crear chat privado asociado si se solicita
+      const roomCode = this.generateRoomCode();
       let chatRoomId: string | undefined;
       let chatRoomCode: string | undefined;
+
       if (data.createChat) {
         try {
           const chatRoomIdDoc = firestore.collection("rooms").doc();
           chatRoomId = chatRoomIdDoc.id;
-          
-          // Generar código para el chat privado
-          let chatCode = "";
-          for (let i = 0; i < 6; i++) {
-            chatCode += chars.charAt(Math.floor(Math.random() * chars.length));
-          }
-          chatRoomCode = chatCode;
+          chatRoomCode = this.generateRoomCode();
 
           const chatRoom = {
             id: chatRoomId,
@@ -79,7 +98,7 @@ export class VideoService {
             description: `Chat privado para la reunión: ${data.name}`,
             type: "group",
             visibility: "private",
-            code: chatCode,
+            code: chatRoomCode,
             participants: [hostId],
             createdBy: hostId,
             videoRoomId: roomId,
@@ -92,11 +111,9 @@ export class VideoService {
           };
 
           await chatRoomIdDoc.set(chatRoom);
-          console.log(`✅ Chat room created: ${chatRoomId} (code: ${chatCode}) for video room: ${roomId}`);
+          this.logger.info(`Chat room created: ${chatRoomId} (code: ${chatRoomCode}) for video room: ${roomId}`);
         } catch (chatError) {
-          // Si falla la creación del chat, continuar sin él (no crítico)
-          console.warn(`⚠️ Failed to create associated chat room (continuing without chat): ${chatError instanceof Error ? chatError.message : "Unknown error"}`);
-          // No lanzar error, continuar sin chat
+          this.logger.warn(`Failed to create associated chat room: ${chatError instanceof Error ? chatError.message : "Unknown error"}`);
         }
       }
 
@@ -106,14 +123,14 @@ export class VideoService {
         description: data.description,
         hostId,
         participants: [hostId],
-        maxParticipants: data.maxParticipants || 10, // Máximo 10 personas por defecto
+        maxParticipants: data.maxParticipants || 8, // Default to 8 for public rooms
         isRecording: false,
-        visibility: data.visibility || "public",
-        code: roomCode, // Siempre generar código
-        chatRoomId, // ID del chat asociado
-        chatRoomCode, // Código del chat asociado
-        createdAt: now,
-        updatedAt: now
+        visibility: "public", // Always public - no auth required
+        code: roomCode,
+        chatRoomId,
+        chatRoomCode,
+        createdAt: new Date(),
+        updatedAt: new Date()
       };
 
       const roomToSave = {
@@ -152,23 +169,7 @@ export class VideoService {
         return null;
       }
 
-      const roomDoc = snapshot.docs[0];
-      const data = roomDoc.data();
-      return {
-        id: roomDoc.id,
-        name: data?.name || "",
-        description: data?.description,
-        hostId: data?.hostId || "",
-        participants: data?.participants || [],
-        maxParticipants: data?.maxParticipants || 10,
-        isRecording: data?.isRecording || false,
-        visibility: data?.visibility || "public",
-        code: data?.code,
-        chatRoomId: data?.chatRoomId,
-        chatRoomCode: data?.chatRoomCode,
-        createdAt: this.convertToDate(data?.createdAt),
-        updatedAt: this.convertToDate(data?.updatedAt)
-      };
+      return this.mapRoomData(snapshot.docs[0]);
     } catch (error) {
       throw new Error(
         `Failed to get video room by code: ${error instanceof Error ? error.message : "Unknown error"}`
@@ -192,22 +193,7 @@ export class VideoService {
         return null;
       }
 
-      const data = roomDoc.data();
-      return {
-        id: roomDoc.id,
-        name: data?.name || "",
-        description: data?.description,
-        hostId: data?.hostId || "",
-        participants: data?.participants || [],
-        maxParticipants: data?.maxParticipants || 10,
-        isRecording: data?.isRecording || false,
-        visibility: data?.visibility || "public",
-        code: data?.code,
-        chatRoomId: data?.chatRoomId,
-        chatRoomCode: data?.chatRoomCode,
-        createdAt: this.convertToDate(data?.createdAt),
-        updatedAt: this.convertToDate(data?.updatedAt)
-      };
+      return this.mapRoomData(roomDoc);
     } catch (error) {
       throw new Error(
         `Failed to get video room: ${error instanceof Error ? error.message : "Unknown error"}`
@@ -241,9 +227,8 @@ export class VideoService {
         throw new Error("Room not found");
       }
 
-      // Check if room is full
-      if (room.participants.length >= (room.maxParticipants || 10)) {
-        throw new Error("Room is full");
+      if (room.participants.length >= (room.maxParticipants || 8)) {
+        throw new Error("Room is full (máximo 8 participantes)");
       }
 
       // Add participant to room
