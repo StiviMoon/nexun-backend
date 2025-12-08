@@ -75,7 +75,12 @@ export enum SignalType {
 }
 
 /**
- * Valida si un objeto es una señal WebRTC válida
+ * Valida si un objeto es una señal WebRTC válida (compatible con PeerJS y WebRTC nativo)
+ * PeerJS format:
+ * - Offer/Answer: { type: "offer" | "answer", sdp: string }
+ * - ICE Candidate: { candidate: string, sdpMLineIndex: number | null, sdpMid: string | null }
+ * 
+ * También acepta formato alternativo donde el tipo está en el objeto principal
  */
 export const isValidSignal = (data: unknown): boolean => {
   if (!data || typeof data !== "object") {
@@ -84,14 +89,27 @@ export const isValidSignal = (data: unknown): boolean => {
 
   const signal = data as Record<string, unknown>;
   
-  // Offer o Answer deben tener SDP
-  if (signal.type === "offer" || signal.type === "answer") {
-    return typeof signal.sdp === "string" && signal.sdp.length > 0;
+  // Validar Offer o Answer (formato PeerJS y WebRTC estándar)
+  // Puede venir como signal.type o como parte del objeto
+  const signalType = signal.type as string;
+  if (signalType === "offer" || signalType === "answer") {
+    const sdp = signal.sdp;
+    return typeof sdp === "string" && sdp.length > 0;
   }
   
-  // ICE candidate debe tener candidate string
-  if (signal.type === "ice-candidate" || signal.candidate) {
-    return typeof signal.candidate === "string";
+  // Validar ICE Candidate (formato PeerJS y WebRTC estándar)
+  // Puede venir como signal.type === "ice-candidate" o solo con candidate
+  const candidate = signal.candidate;
+  if (signalType === "ice-candidate" || candidate) {
+    const hasCandidate = typeof candidate === "string" && candidate.length > 0;
+    // sdpMLineIndex y sdpMid pueden ser null, undefined, o number/string
+    const sdpMLineIndex = signal.sdpMLineIndex;
+    const sdpMid = signal.sdpMid;
+    const hasValidIndex = sdpMLineIndex === null || sdpMLineIndex === undefined || 
+                         typeof sdpMLineIndex === "number";
+    const hasValidMid = sdpMid === null || sdpMid === undefined || 
+                       typeof sdpMid === "string";
+    return hasCandidate && hasValidIndex && hasValidMid;
   }
   
   return false;

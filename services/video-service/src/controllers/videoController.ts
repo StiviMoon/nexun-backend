@@ -4,40 +4,28 @@ import { VideoService } from "../services/videoService";
 import {
   JoinVideoRoomData,
   CreateVideoRoomData,
-  VideoSignalData
+  VideoSignalData,
+  VideoRoom
 } from "../shared/types/video";
 import { Logger } from "../shared/utils/logger";
 import { isValidSignal } from "../shared/utils/webrtcConfig";
+import { firestore } from "../shared/config/firebase";
+import * as admin from "firebase-admin";
 
 /**
- * VideoController - Maneja la señalización WebRTC para videollamadas peer-to-peer
- * 
- * Arquitectura:
- * - Este servicio actúa como servidor de señalización (signaling server)
- * - Los clientes establecen conexiones peer-to-peer directas usando WebRTC
- * - El servidor solo reenvía señales (offers, answers, ICE candidates)
- * - No procesa ni almacena streams de video/audio (todo es P2P)
- * 
- * Flujo de conexión:
- * 1. Cliente A crea/une sala → servidor notifica a otros participantes
- * 2. Cliente A obtiene permisos de cámara/micrófono
- * 3. Cliente A crea peer connection y genera offer
- * 4. Cliente A envía offer al servidor → servidor reenvía a Cliente B
- * 5. Cliente B recibe offer, crea peer connection, genera answer
- * 6. Cliente B envía answer al servidor → servidor reenvía a Cliente A
- * 7. Ambos intercambian ICE candidates para establecer conexión P2P
- * 8. Una vez conectados, el video/audio fluye directamente entre clientes
- * 
- * Nota: Si el video aparece negro, verifica en el frontend:
- * - El stream se pasa correctamente al peer: new SimplePeer({ stream })
- * - Los video elements tienen autoplay y playsInline
- * - Los tracks de video están habilitados
- * - Los permisos de cámara están otorgados
+ * VideoController - WebRTC signaling server for peer-to-peer video calls
+ * Acts as a signaling server that forwards WebRTC signals (offers, answers, ICE candidates)
+ * between clients. All video/audio streams flow directly peer-to-peer.
  */
+interface SocketError {
+  message: string;
+  code?: string;
+}
+
 export class VideoController {
-  private io: SocketIOServer;
-  private connectedUsers: Map<string, Map<string, string>> = new Map(); // userId -> Map<roomId, socketId>
-  private logger: Logger;
+  private readonly io: SocketIOServer;
+  private readonly connectedUsers: Map<string, Map<string, string>> = new Map();
+  private readonly logger: Logger;
 
   constructor(io: SocketIOServer) {
     this.io = io;
@@ -45,30 +33,101 @@ export class VideoController {
   }
 
   /**
-   * Handles new Socket.IO connection for video service
-   * @param socket - Authenticated socket connection
+   * Helper: Emit error to socket with consistent format
+   */
+  private emitError(socket: AuthenticatedSocket, message: string, code?: string): void {
+    const error: SocketError = { message };
+    if (code) {
+      error.code = code;
+    }
+    socket.emit("error", error);
+  }
+
+  /**
+   * Helper: Emit error from exception
+   */
+  private emitErrorFromException(socket: AuthenticatedSocket, error: unknown, defaultCode: string): void {
+    const message = error instanceof Error ? error.message : "An unexpected error occurred";
+    this.emitError(socket, message, defaultCode);
+  }
+
+  /**
+   * Handles new Socket.IO connection
+   * Supports both authenticated and anonymous users for public rooms
    */
   handleConnection = (socket: AuthenticatedSocket): void => {
+    // Create user if not exists (for anonymous connections)
     if (!socket.user) {
-      socket.disconnect();
-      return;
+      socket.user = {
+        uid: `anonymous_${socket.id}`,
+        name: `Guest ${socket.id.substring(0, 8)}`,
+        email: undefined,
+        picture: undefined
+      };
     }
 
-    const userId = socket.user.uid;
-    this.logger.info(`User ${userId} connected to video service (socket: ${socket.id})`);
-
-    // Register event handlers
+    const userType = socket.user.uid.startsWith('anonymous_') ? 'anonymous' : 'authenticated';
+    this.logger.info(`User ${socket.user.uid} (${userType}) connected (socket: ${socket.id})`);
     this.registerEventHandlers(socket);
-
-    // Handle disconnection
-    socket.on("disconnect", () => {
-      this.handleDisconnection(socket);
-    });
+    socket.on("disconnect", () => this.handleDisconnection(socket));
   };
 
   /**
-   * Registers all Socket.IO event handlers for video service
-   * @param socket - Authenticated socket to register handlers for
+   * Helper: Validate user is in room (works for both authenticated and anonymous users)
+   */
+  private async validateUserInRoom(
+    socket: AuthenticatedSocket,
+    roomId: string
+  ): Promise<VideoRoom | null> {
+    if (!socket.user) {
+      this.emitError(socket, "User not identified", "USER_NOT_IDENTIFIED");
+      return null;
+    }
+
+    const room = await VideoService.getRoom(roomId);
+    if (!room) {
+      this.emitError(socket, "Room not found", "ROOM_NOT_FOUND");
+      return null;
+    }
+
+    // For public rooms, check if user is in participants list
+    if (!room.participants.includes(socket.user.uid)) {
+      this.emitError(socket, "Not in room", "NOT_IN_ROOM");
+      return null;
+    }
+
+    return room;
+  }
+
+  /**
+   * Helper: Add user to chat room if video room has associated chat
+   */
+  private async addUserToChatRoom(roomId: string, userId: string): Promise<void> {
+    const room = await VideoService.getRoom(roomId);
+    if (!room?.chatRoomId) return;
+
+    try {
+      const chatRoomRef = firestore.collection("rooms").doc(room.chatRoomId);
+      const chatRoomDoc = await chatRoomRef.get();
+
+      if (chatRoomDoc.exists) {
+        const chatRoomData = chatRoomDoc.data();
+        const participants = chatRoomData?.participants || [];
+
+        if (!participants.includes(userId)) {
+          await chatRoomRef.update({
+            participants: [...participants, userId],
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to add user to chat room: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }
+
+  /**
+   * Registers all Socket.IO event handlers
    */
   private registerEventHandlers = (socket: AuthenticatedSocket): void => {
     socket.on("video:room:create", (data: CreateVideoRoomData) => {
@@ -99,12 +158,33 @@ export class VideoController {
       this.handleToggleScreen(socket, data);
     });
 
-    socket.on("video:stream:ready", (data: { roomId: string; hasVideo: boolean; hasAudio: boolean }) => {
+    socket.on("video:screen:start", (data: { roomId: string }) => {
+      this.handleScreenStart(socket, data);
+    });
+
+    socket.on("video:screen:stop", (data: { roomId: string }) => {
+      this.handleScreenStop(socket, data);
+    });
+
+    socket.on("video:stream:ready", (data: { 
+      roomId: string; 
+      hasVideo: boolean; 
+      hasAudio: boolean; 
+      isScreenSharing?: boolean;
+      streamId?: string; // ID del stream para distinguir múltiples streams
+    }) => {
       this.handleStreamReady(socket, data);
     });
 
     socket.on("video:room:end", (data: { roomId: string }) => {
       this.handleEndRoom(socket, data);
+    });
+
+    // Debug event: log all incoming signals (can be disabled in production)
+    socket.onAny((eventName) => {
+      if (eventName.startsWith("video:")) {
+        this.logger.debug(`Received event: ${eventName} from ${socket.user?.uid || "unknown"}`);
+      }
     });
   };
 
@@ -112,70 +192,63 @@ export class VideoController {
    * Handle user disconnection
    */
   private handleDisconnection = (socket: AuthenticatedSocket): void => {
-    if (!socket.user) {
-      return;
-    }
+    if (!socket.user) return;
 
-    const userId = socket.user.uid;
-    const userRooms = this.connectedUsers.get(userId);
-
+    const userRooms = this.connectedUsers.get(socket.user.uid);
     if (userRooms) {
-      // Leave all rooms user was in
       for (const [roomId] of userRooms) {
-        this.leaveRoom(userId, roomId);
+        this.leaveRoom(socket.user.uid, roomId);
       }
-      this.connectedUsers.delete(userId);
+      this.connectedUsers.delete(socket.user.uid);
     }
 
-    this.logger.info(`User ${userId} disconnected from video service`);
+    this.logger.info(`User ${socket.user.uid} disconnected`);
   };
 
   /**
-   * Handles creating a new video room
-   * @param socket - Authenticated socket
-   * @param data - Room creation data
+   * Handles creating a new video room (public by default, no auth required)
    */
   private handleCreateRoom = async (
     socket: AuthenticatedSocket,
     data: CreateVideoRoomData
   ): Promise<void> => {
     if (!socket.user) {
-      socket.emit("error", { message: "Unauthorized" });
-      return;
+      socket.user = {
+        uid: `anonymous_${socket.id}`,
+        name: `Guest ${socket.id.substring(0, 8)}`,
+        email: undefined,
+        picture: undefined
+      };
     }
 
     try {
-      this.logger.info(`Creating video room: ${data.name} by user ${socket.user.uid}`);
-      const room = await VideoService.createRoom(data, socket.user.uid);
-      this.logger.info(`Video room created successfully: ${room.id}, code: ${room.code}, chatRoomId: ${room.chatRoomId || 'none'}`);
+      // Force public rooms and max 8 participants
+      const roomData = {
+        ...data,
+        visibility: "public" as const,
+        maxParticipants: 8
+      };
+      const room = await VideoService.createRoom(roomData, socket.user.uid);
 
-      // Track user in room
       if (!this.connectedUsers.has(socket.user.uid)) {
         this.connectedUsers.set(socket.user.uid, new Map());
       }
       this.connectedUsers.get(socket.user.uid)?.set(room.id, socket.id);
 
-      // Join socket room
       await socket.join(room.id);
-
-      // Add participant with user info
       await VideoService.addParticipant(
         room.id,
         socket.user.uid,
         socket.id,
-        socket.user.name || undefined,
-        socket.user.email || undefined
+        socket.user.name,
+        socket.user.email
       );
 
-      this.logger.info(`Emitting video:room:created event to socket ${socket.id}`);
       socket.emit("video:room:created", room);
-      this.logger.info(`Video room ${room.id} created by ${socket.user.uid}`);
+      this.logger.info(`Room ${room.id} created by ${socket.user.uid}`);
     } catch (error) {
-      this.logger.error(`Failed to create video room: ${error instanceof Error ? error.message : "Unknown error"}`);
-      socket.emit("error", {
-        message: error instanceof Error ? error.message : "Failed to create room",
-        code: "CREATE_ROOM_ERROR"
-      });
+      this.logger.error(`Failed to create room: ${error instanceof Error ? error.message : "Unknown error"}`);
+      this.emitErrorFromException(socket, error, "CREATE_ROOM_ERROR");
     }
   };
 
@@ -188,9 +261,14 @@ export class VideoController {
     socket: AuthenticatedSocket,
     data: JoinVideoRoomData
   ): Promise<void> => {
+    // Allow anonymous users for public rooms
     if (!socket.user) {
-      socket.emit("error", { message: "Unauthorized" });
-      return;
+      socket.user = {
+        uid: `anonymous_${socket.id}`,
+        name: `Guest ${socket.id.substring(0, 8)}`,
+        email: undefined,
+        picture: undefined
+      };
     }
 
     try {
@@ -205,14 +283,14 @@ export class VideoController {
       }
 
       if (!room) {
-        socket.emit("error", { message: "Room not found", code: "ROOM_NOT_FOUND" });
+        this.emitError(socket, "Room not found", "ROOM_NOT_FOUND");
         return;
       }
 
       const actualRoomId = room.id;
 
-      if (room.participants.length >= (room.maxParticipants || 10)) {
-        socket.emit("error", { message: "Room is full (máximo 10 personas)", code: "ROOM_FULL" });
+      if (room.participants.length >= (room.maxParticipants || 8)) {
+        this.emitError(socket, "Room is full (máximo 8 participantes)", "ROOM_FULL");
         return;
       }
 
@@ -231,31 +309,7 @@ export class VideoController {
         socket.user.email || undefined
       );
 
-      // Si la sala tiene un chat asociado, agregar al participante al chat
-      if (room.chatRoomId) {
-        try {
-          const { firestore } = require("../shared/config/firebase");
-          const chatRoomRef = firestore.collection("rooms").doc(room.chatRoomId);
-          const chatRoomDoc = await chatRoomRef.get();
-          
-          if (chatRoomDoc.exists) {
-            const chatRoomData = chatRoomDoc.data();
-            const participants = chatRoomData?.participants || [];
-            
-            // Agregar al participante si no está ya en la lista
-            if (!participants.includes(socket.user.uid)) {
-              await chatRoomRef.update({
-                participants: [...participants, socket.user.uid],
-                updatedAt: require("firebase-admin").firestore.FieldValue.serverTimestamp()
-              });
-              this.logger.info(`User ${socket.user.uid} added to chat room ${room.chatRoomId}`);
-            }
-          }
-        } catch (chatError) {
-          // Si falla, continuar sin el chat (no crítico)
-          this.logger.warn(`Failed to add user to chat room: ${chatError instanceof Error ? chatError.message : "Unknown error"}`);
-        }
-      }
+      await this.addUserToChatRoom(actualRoomId, socket.user.uid);
 
       const participants = await VideoService.getRoomParticipants(actualRoomId);
 
@@ -267,7 +321,9 @@ export class VideoController {
         userEmail: socket.user.email,
         socketId: socket.id,
         isAudioEnabled: true,
-        isVideoEnabled: true
+        isVideoEnabled: true,
+        isScreenSharing: false,
+        timestamp: new Date().toISOString()
       });
 
       // Send room info and existing participants to the new user
@@ -287,14 +343,10 @@ export class VideoController {
       });
 
       this.logger.info(
-        `User ${socket.user.uid} joined room ${actualRoomId} (code: ${room.code}). ` +
-        `Total participants: ${participants.length}/${room.maxParticipants || 10}`
+        `User ${socket.user.uid} joined room ${actualRoomId} (${participants.length}/${room.maxParticipants || 8} participants)`
       );
     } catch (error) {
-      socket.emit("error", {
-        message: error instanceof Error ? error.message : "Failed to join room",
-        code: "JOIN_ROOM_ERROR"
-      });
+      this.emitErrorFromException(socket, error, "JOIN_ROOM_ERROR");
     }
   };
 
@@ -306,7 +358,12 @@ export class VideoController {
     data: JoinVideoRoomData
   ): Promise<void> => {
     if (!socket.user) {
-      return;
+      socket.user = {
+        uid: `anonymous_${socket.id}`,
+        name: `Guest ${socket.id.substring(0, 8)}`,
+        email: undefined,
+        picture: undefined
+      };
     }
 
     try {
@@ -330,10 +387,7 @@ export class VideoController {
       socket.emit("video:room:left", { roomId });
       this.logger.info(`User ${socket.user.uid} left video room ${actualRoomId}`);
     } catch (error) {
-      socket.emit("error", {
-        message: error instanceof Error ? error.message : "Failed to leave room",
-        code: "LEAVE_ROOM_ERROR"
-      });
+      this.emitErrorFromException(socket, error, "LEAVE_ROOM_ERROR");
     }
   };
 
@@ -364,14 +418,19 @@ export class VideoController {
   /**
    * Handle WebRTC signaling (offer, answer, ICE candidates)
    * This is critical for establishing peer-to-peer connections for video and audio
+   * Works for both authenticated and anonymous users
    */
   private handleSignal = async (
     socket: AuthenticatedSocket,
     data: VideoSignalData
   ): Promise<void> => {
     if (!socket.user) {
-      socket.emit("error", { message: "Unauthorized", code: "UNAUTHORIZED" });
-      return;
+      socket.user = {
+        uid: `anonymous_${socket.id}`,
+        name: `Guest ${socket.id.substring(0, 8)}`,
+        email: undefined,
+        picture: undefined
+      };
     }
 
     try {
@@ -380,122 +439,187 @@ export class VideoController {
       // Validate signal type
       if (!["offer", "answer", "ice-candidate"].includes(type)) {
         this.logger.warn(`Invalid signal type: ${type} from user ${socket.user.uid}`);
-        socket.emit("error", { message: "Invalid signal type", code: "INVALID_SIGNAL_TYPE" });
+        this.emitError(socket, "Invalid signal type", "INVALID_SIGNAL_TYPE");
         return;
       }
 
-      // Validate signal data
       if (!signalData) {
         this.logger.warn(`Missing signal data from user ${socket.user.uid}`);
-        socket.emit("error", { message: "Missing signal data", code: "MISSING_SIGNAL_DATA" });
+        this.emitError(socket, "Missing signal data", "MISSING_SIGNAL_DATA");
         return;
       }
 
-      // Validate signal structure
       if (!isValidSignal(signalData)) {
-        this.logger.warn(`Invalid signal data structure from user ${socket.user.uid}: ${JSON.stringify(signalData).substring(0, 100)}`);
-        socket.emit("error", { message: "Invalid signal data structure", code: "INVALID_SIGNAL_STRUCTURE" });
+        this.logger.warn(`Invalid signal data structure from user ${socket.user.uid}`);
+        this.emitError(socket, "Invalid signal data structure", "INVALID_SIGNAL_STRUCTURE");
         return;
       }
 
-      // Verify user is in the room
       const room = await VideoService.getRoom(roomId);
       if (!room) {
         this.logger.warn(`Room ${roomId} not found for signal from user ${socket.user.uid}`);
-        socket.emit("error", { message: "Room not found", code: "ROOM_NOT_FOUND" });
+        this.emitError(socket, "Room not found", "ROOM_NOT_FOUND");
         return;
       }
 
       if (!room.participants.includes(socket.user.uid)) {
         this.logger.warn(`User ${socket.user.uid} not in room ${roomId}`);
-        socket.emit("error", { message: "Not in room", code: "NOT_IN_ROOM" });
+        this.emitError(socket, "Not in room", "NOT_IN_ROOM");
         return;
       }
 
-      // Log signal for debugging
-      const signalInfo = type === "ice-candidate" 
-        ? "ICE candidate" 
-        : `${type.toUpperCase()} (SDP: ${(signalData as any).sdp?.substring(0, 50) || "N/A"}...)`;
-      this.logger.info(
-        `Signal ${signalInfo} from ${socket.user.uid} in room ${roomId}${targetUserId ? ` to ${targetUserId}` : " (broadcast)"}`
-      );
+      // Get sender participant info to include stream state in metadata
+      const senderParticipant = await VideoService.getParticipant(roomId, socket.user.uid);
+      const isScreenSharing = senderParticipant?.isScreenSharing || metadata?.isScreenSharing || false;
+      const streamType = isScreenSharing ? "screen" : "camera";
+      
+      const enhancedMetadata = {
+        ...metadata,
+        isScreenSharing,
+        streamType,
+        hasVideo: senderParticipant?.isVideoEnabled ?? metadata?.hasVideo ?? true,
+        hasAudio: senderParticipant?.isAudioEnabled ?? metadata?.hasAudio ?? true,
+        videoEnabled: senderParticipant?.isVideoEnabled ?? metadata?.videoEnabled ?? true,
+        audioEnabled: senderParticipant?.isAudioEnabled ?? metadata?.audioEnabled ?? true
+      };
 
-      // Prepare signal payload with metadata
+      // Log signal for debugging (especially important for screen sharing)
+      if (type !== "ice-candidate") {
+        this.logger.info(
+          `Signal ${type} from ${socket.user.uid} in room ${roomId} ` +
+          `(stream: ${streamType}, screen: ${isScreenSharing}) ` +
+          `${targetUserId ? `to ${targetUserId}` : "broadcast"}`
+        );
+      }
+
+      // Prepare signal payload compatible with PeerJS
+      // PeerJS expects: { type, roomId, fromUserId, data: { type, sdp } or { candidate, ... }, metadata }
       const signalPayload = {
         type,
         roomId,
         fromUserId: socket.user.uid,
+        fromUserName: socket.user.name,
+        fromUserEmail: socket.user.email,
         data: signalData,
-        metadata: metadata || {}
+        metadata: enhancedMetadata,
+        timestamp: new Date().toISOString()
       };
 
       // Forward signal to target user or broadcast to all in room
       if (targetUserId) {
         // Send to specific user (peer-to-peer)
-        const participant = await VideoService.getParticipant(roomId, targetUserId);
-        if (participant) {
-          this.logger.info(
-            `Forwarding ${type} signal from ${socket.user.uid} to ${targetUserId} (socket: ${participant.socketId})`
-          );
-          this.io.to(participant.socketId).emit("video:signal", signalPayload);
-        } else {
-          this.logger.warn(`Target participant ${targetUserId} not found in room ${roomId}`);
-          socket.emit("error", { 
-            message: "Target user not found in room", 
-            code: "TARGET_USER_NOT_FOUND" 
-          });
+        const targetParticipant = await VideoService.getParticipant(roomId, targetUserId);
+        if (!targetParticipant) {
+          this.emitError(socket, "Target user not found in room", "TARGET_USER_NOT_FOUND");
+          return;
         }
+        this.logger.info(
+          `Forwarding ${type} signal from ${socket.user.uid} to ${targetUserId} ` +
+          `(socket: ${targetParticipant.socketId}, stream: ${streamType}, screen: ${isScreenSharing})`
+        );
+        this.io.to(targetParticipant.socketId).emit("video:signal", signalPayload);
       } else {
-        // Broadcast to all in room except sender (mesh topology)
+        // Broadcast to all participants in room except sender
         const socketsInRoom = await this.io.in(roomId).fetchSockets();
         const targetSockets = socketsInRoom.filter(s => s.id !== socket.id);
-        
         this.logger.info(
-          `Broadcasting ${type} signal from ${socket.user.uid} to ${targetSockets.length} participant(s) in room ${roomId}`
+          `Broadcasting ${type} signal from ${socket.user.uid} to ${targetSockets.length} participant(s) ` +
+          `(stream: ${streamType}, screen: ${isScreenSharing})`
         );
-        
         socket.to(roomId).emit("video:signal", signalPayload);
       }
     } catch (error) {
       this.logger.error(
         `Failed to handle signal from ${socket.user?.uid}: ${error instanceof Error ? error.message : "Unknown error"}`
       );
-      socket.emit("error", {
-        message: error instanceof Error ? error.message : "Failed to send signal",
-        code: "SIGNAL_ERROR"
-      });
+      this.emitErrorFromException(socket, error, "SIGNAL_ERROR");
     }
   };
 
   /**
    * Handle stream ready event (client notifies that their media stream is ready)
+   * Supports multiple streams: camera video + screen sharing simultaneously
    */
   private handleStreamReady = async (
     socket: AuthenticatedSocket,
-    data: { roomId: string; hasVideo: boolean; hasAudio: boolean }
+    data: { 
+      roomId: string; 
+      hasVideo: boolean; 
+      hasAudio: boolean; 
+      isScreenSharing?: boolean;
+      streamId?: string;
+    }
   ): Promise<void> => {
     if (!socket.user) {
-      return;
+      socket.user = {
+        uid: `anonymous_${socket.id}`,
+        name: `Guest ${socket.id.substring(0, 8)}`,
+        email: undefined,
+        picture: undefined
+      };
     }
 
     try {
-      this.logger.info(
-        `User ${socket.user.uid} stream ready in room ${data.roomId} - Video: ${data.hasVideo}, Audio: ${data.hasAudio}`
-      );
+      // Verify user is in the room
+      const room = await this.validateUserInRoom(socket, data.roomId);
+      if (!room) return;
+
+      // Update screen sharing state if provided
+      if (data.isScreenSharing !== undefined) {
+        await VideoService.updateParticipantState(data.roomId, socket.user.uid, {
+          isScreenSharing: data.isScreenSharing
+        });
+        this.logger.info(
+          `User ${socket.user.uid} stream ready - Screen sharing: ${data.isScreenSharing}, ` +
+          `Video: ${data.hasVideo}, Audio: ${data.hasAudio}`
+        );
+      }
 
       // Notify others that this user's stream is ready
+      // Include streamId to support multiple simultaneous streams (camera + screen)
       socket.to(data.roomId).emit("video:stream:ready", {
         roomId: data.roomId,
         userId: socket.user.uid,
+        userName: socket.user.name,
+        userEmail: socket.user.email,
         hasVideo: data.hasVideo,
-        hasAudio: data.hasAudio
+        hasAudio: data.hasAudio,
+        isScreenSharing: data.isScreenSharing || false,
+        streamId: data.streamId || `stream-${socket.user.uid}-${Date.now()}`,
+        streamType: data.isScreenSharing ? "screen" : "camera",
+        timestamp: new Date().toISOString()
       });
     } catch (error) {
       this.logger.error(
         `Failed to handle stream ready: ${error instanceof Error ? error.message : "Unknown error"}`
       );
+      this.emitErrorFromException(socket, error, "STREAM_READY_ERROR");
     }
   };
+
+  /**
+   * Helper: Toggle participant state and notify room
+   */
+  private async toggleParticipantState(
+    socket: AuthenticatedSocket,
+    roomId: string,
+    updates: { isAudioEnabled?: boolean; isVideoEnabled?: boolean; isScreenSharing?: boolean },
+    eventName: string
+  ): Promise<void> {
+    if (!socket.user) return;
+
+    try {
+      await VideoService.updateParticipantState(roomId, socket.user.uid, updates);
+      socket.to(roomId).emit(eventName, {
+        roomId,
+        userId: socket.user.uid,
+        ...updates
+      });
+    } catch (error) {
+      this.logger.error(`Failed to toggle state: ${error instanceof Error ? error.message : "Unknown error"}`);
+      this.emitErrorFromException(socket, error, `${eventName.toUpperCase()}_ERROR`);
+    }
+  }
 
   /**
    * Handle toggling audio
@@ -504,34 +628,12 @@ export class VideoController {
     socket: AuthenticatedSocket,
     data: { roomId: string; enabled: boolean }
   ): Promise<void> => {
-    if (!socket.user) {
-      return;
-    }
-
-    try {
-      await VideoService.updateParticipantState(data.roomId, socket.user.uid, {
-        isAudioEnabled: data.enabled
-      });
-
-      this.logger.info(
-        `User ${socket.user.uid} ${data.enabled ? "enabled" : "disabled"} audio in room ${data.roomId}`
-      );
-
-      // Notify others in the room
-      socket.to(data.roomId).emit("video:audio:toggled", {
-        roomId: data.roomId,
-        userId: socket.user.uid,
-        enabled: data.enabled
-      });
-    } catch (error) {
-      this.logger.error(
-        `Failed to toggle audio for user ${socket.user.uid}: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-      socket.emit("error", {
-        message: error instanceof Error ? error.message : "Failed to toggle audio",
-        code: "TOGGLE_AUDIO_ERROR"
-      });
-    }
+    await this.toggleParticipantState(
+      socket,
+      data.roomId,
+      { isAudioEnabled: data.enabled },
+      "video:audio:toggled"
+    );
   };
 
   /**
@@ -541,34 +643,12 @@ export class VideoController {
     socket: AuthenticatedSocket,
     data: { roomId: string; enabled: boolean }
   ): Promise<void> => {
-    if (!socket.user) {
-      return;
-    }
-
-    try {
-      await VideoService.updateParticipantState(data.roomId, socket.user.uid, {
-        isVideoEnabled: data.enabled
-      });
-
-      this.logger.info(
-        `User ${socket.user.uid} ${data.enabled ? "enabled" : "disabled"} video in room ${data.roomId}`
-      );
-
-      // Notify others in the room
-      socket.to(data.roomId).emit("video:video:toggled", {
-        roomId: data.roomId,
-        userId: socket.user.uid,
-        enabled: data.enabled
-      });
-    } catch (error) {
-      this.logger.error(
-        `Failed to toggle video for user ${socket.user.uid}: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-      socket.emit("error", {
-        message: error instanceof Error ? error.message : "Failed to toggle video",
-        code: "TOGGLE_VIDEO_ERROR"
-      });
-    }
+    await this.toggleParticipantState(
+      socket,
+      data.roomId,
+      { isVideoEnabled: data.enabled },
+      "video:video:toggled"
+    );
   };
 
   /**
@@ -578,9 +658,10 @@ export class VideoController {
     socket: AuthenticatedSocket,
     data: { roomId: string; enabled: boolean }
   ): Promise<void> => {
-    if (!socket.user) {
-      return;
-    }
+    if (!socket.user) return;
+
+    const room = await this.validateUserInRoom(socket, data.roomId);
+    if (!room) return;
 
     try {
       await VideoService.updateParticipantState(data.roomId, socket.user.uid, {
@@ -591,21 +672,105 @@ export class VideoController {
         `User ${socket.user.uid} ${data.enabled ? "started" : "stopped"} screen sharing in room ${data.roomId}`
       );
 
-      // Notify others in the room
-      socket.to(data.roomId).emit("video:screen:toggled", {
+      const payload = {
         roomId: data.roomId,
         userId: socket.user.uid,
-        enabled: data.enabled
-      });
+        userName: socket.user.name,
+        userEmail: socket.user.email,
+        enabled: data.enabled,
+        isScreenSharing: data.enabled,
+        timestamp: new Date().toISOString()
+      };
+
+      // Notify others in the room about screen sharing state change
+      socket.to(data.roomId).emit("video:screen:toggled", payload);
+      socket.emit("video:screen:toggled", payload);
+      
+      // Emit negotiation event to trigger new peer connection for screen sharing
+      if (data.enabled) {
+        this.logger.info(`Triggering screen sharing negotiation for user ${socket.user.uid}`);
+        socket.to(data.roomId).emit("video:screen:negotiation:needed", {
+          roomId: data.roomId,
+          userId: socket.user.uid,
+          userName: socket.user.name,
+          timestamp: new Date().toISOString()
+        });
+      }
     } catch (error) {
-      this.logger.error(
-        `Failed to toggle screen sharing for user ${socket.user.uid}: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-      socket.emit("error", {
-        message: error instanceof Error ? error.message : "Failed to toggle screen",
-        code: "TOGGLE_SCREEN_ERROR"
-      });
+      this.logger.error(`Failed to toggle screen: ${error instanceof Error ? error.message : "Unknown error"}`);
+      this.emitErrorFromException(socket, error, "TOGGLE_SCREEN_ERROR");
     }
+  };
+
+  /**
+   * Helper: Handle screen sharing start/stop events
+   */
+  private async handleScreenEvent(
+    socket: AuthenticatedSocket,
+    roomId: string,
+    enabled: boolean,
+    eventName: string
+  ): Promise<void> {
+    if (!socket.user) return;
+
+    const room = await this.validateUserInRoom(socket, roomId);
+    if (!room) return;
+
+    try {
+      await VideoService.updateParticipantState(roomId, socket.user.uid, {
+        isScreenSharing: enabled
+      });
+
+      this.logger.info(
+        `User ${socket.user.uid} screen sharing ${enabled ? "started" : "stopped"} in room ${roomId}`
+      );
+
+      const payload = {
+        roomId,
+        userId: socket.user.uid,
+        userName: socket.user.name,
+        userEmail: socket.user.email,
+        isScreenSharing: enabled,
+        timestamp: new Date().toISOString()
+      };
+
+      socket.to(roomId).emit(eventName, payload);
+      socket.emit(eventName, { ...payload, userName: undefined, userEmail: undefined });
+      
+      // Trigger negotiation when starting screen sharing
+      if (enabled && eventName === "video:screen:started") {
+        this.logger.info(`Triggering negotiation for screen sharing from ${socket.user.uid}`);
+        socket.to(roomId).emit("video:screen:negotiation:needed", {
+          roomId,
+          userId: socket.user.uid,
+          userName: socket.user.name,
+          timestamp: new Date().toISOString()
+        });
+      }
+    } catch (error) {
+      this.logger.error(`Failed to handle screen event: ${error instanceof Error ? error.message : "Unknown error"}`);
+      this.emitErrorFromException(socket, error, `${eventName.toUpperCase()}_ERROR`);
+    }
+  }
+
+  /**
+   * Handle screen sharing start event
+   */
+  private handleScreenStart = async (
+    socket: AuthenticatedSocket,
+    data: { roomId: string }
+  ): Promise<void> => {
+    await this.handleScreenEvent(socket, data.roomId, true, "video:screen:started");
+  };
+
+  /**
+   * Handle screen sharing stop event
+   */
+  private handleScreenStop = async (
+    socket: AuthenticatedSocket,
+    data: { roomId: string }
+  ): Promise<void> => {
+    await this.handleScreenEvent(socket, data.roomId, false, "video:screen:stopped");
   };
 
   /**
@@ -616,7 +781,18 @@ export class VideoController {
     data: { roomId: string }
   ): Promise<void> => {
     if (!socket.user) {
-      socket.emit("error", { message: "Unauthorized" });
+      socket.user = {
+        uid: `anonymous_${socket.id}`,
+        name: `Guest ${socket.id.substring(0, 8)}`,
+        email: undefined,
+        picture: undefined
+      };
+    }
+    
+    // Only room host can end the room
+    const room = await VideoService.getRoom(data.roomId);
+    if (!room || room.hostId !== socket.user.uid) {
+      this.emitError(socket, "Only room host can end the room", "UNAUTHORIZED");
       return;
     }
 
@@ -628,16 +804,12 @@ export class VideoController {
         roomId: data.roomId
       });
 
-      // Disconnect all sockets from the room
       const sockets = await this.io.in(data.roomId).fetchSockets();
       sockets.forEach(s => s.leave(data.roomId));
 
-      this.logger.info(`Video room ${data.roomId} ended by ${socket.user.uid}`);
+      this.logger.info(`Room ${data.roomId} ended by ${socket.user.uid}`);
     } catch (error) {
-      socket.emit("error", {
-        message: error instanceof Error ? error.message : "Failed to end room",
-        code: "END_ROOM_ERROR"
-      });
+      this.emitErrorFromException(socket, error, "END_ROOM_ERROR");
     }
   };
 

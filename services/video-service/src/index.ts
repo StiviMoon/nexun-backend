@@ -12,16 +12,13 @@ dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
-// Priority: VIDEO_SERVICE_PORT > PORT > default (3003)
-// This ensures each service uses its specific port when running individually
+const logger = new Logger("video-service");
+
 const PORT = process.env.VIDEO_SERVICE_PORT || process.env.PORT || 3003;
-// Allow multiple origins or single origin from env
 const CORS_ORIGIN = process.env.CORS_ORIGIN 
   ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
   : ["http://localhost:3000", "http://localhost:5000", "http://localhost:5173", "http://localhost:3001"];
-const logger = new Logger("video-service");
 
-// Initialize Socket.IO
 const io = new SocketIOServer(httpServer, {
   cors: {
     origin: Array.isArray(CORS_ORIGIN) ? CORS_ORIGIN : [CORS_ORIGIN],
@@ -31,32 +28,27 @@ const io = new SocketIOServer(httpServer, {
   transports: ["websocket", "polling"]
 });
 
-// Apply authentication middleware to Socket.IO
 io.use(socketAuthMiddleware);
 
-// Initialize Video Controller
-const videoController = new VideoController(io);
-
-// Handle Socket.IO connections
-io.on("connection", (socket: AuthenticatedSocket) => {
-  videoController.handleConnection(socket);
+io.on("connection_error", (err) => {
+  logger.error(`Socket connection error: ${err.message || "Unknown error"}`);
 });
 
-// Middleware
-app.use(
-  cors({
-    origin: CORS_ORIGIN,
-    credentials: true
-  })
-);
+const videoController = new VideoController(io);
+io.on("connection", (socket: AuthenticatedSocket) => {
+  videoController.handleConnection(socket);
+  
+  // Handle socket errors to prevent empty error objects
+  socket.on("error", (error: unknown) => {
+    logger.error(`Socket error: ${error instanceof Error ? error.message : JSON.stringify(error)}`);
+  });
+});
 
+app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// API Routes
 app.use("/api/video", videoRoutes);
 
-// Health check endpoint
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
     status: "ok",
@@ -65,26 +57,17 @@ app.get("/health", (_req: Request, res: Response) => {
   });
 });
 
-// Error handling middleware
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   logger.error("Error:", err.message);
-  res.status(500).json({
-    success: false,
-    error: "Internal server error"
-  });
+  res.status(500).json({ success: false, error: "Internal server error" });
 });
 
-// 404 handler
 app.use((_req: Request, res: Response) => {
-  res.status(404).json({
-    success: false,
-    error: "Route not found"
-  });
+  res.status(404).json({ success: false, error: "Route not found" });
 });
 
 httpServer.listen(PORT, () => {
-  logger.info(`🚀 Video Service is running on port ${PORT}`);
-  logger.info(`📡 CORS enabled for: ${Array.isArray(CORS_ORIGIN) ? CORS_ORIGIN.join(', ') : CORS_ORIGIN}`);
-  logger.info(`🎥 Video microservice is active`);
+  logger.info(`🚀 Video Service running on port ${PORT}`);
+  logger.info(`📡 CORS: ${Array.isArray(CORS_ORIGIN) ? CORS_ORIGIN.join(', ') : CORS_ORIGIN}`);
 });
 
