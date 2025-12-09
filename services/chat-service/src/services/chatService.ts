@@ -2,6 +2,7 @@ import { firestore } from "../shared/config/firebase";
 import { ChatMessage, ChatRoom, CreateRoomData } from "../shared/types/chat";
 import * as admin from "firebase-admin";
 
+
 export class ChatService {
   private static readonly MESSAGES_COLLECTION = "messages";
   private static readonly ROOMS_COLLECTION = "rooms";
