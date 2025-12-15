@@ -40,6 +40,7 @@ export interface AuthResponse {
   user?: UserProfile;
   token?: string;
   error?: string;
+  data?: unknown; // For additional response data (e.g., reset links in development)
 }
 
 export interface DecodedToken {
@@ -61,5 +62,9 @@ export interface UpdateProfileRequest {
 export interface UpdatePasswordRequest {
   currentPassword: string;
   newPassword: string;
+}
+
+export interface PasswordResetRequest {
+  email: string;
 }
 
