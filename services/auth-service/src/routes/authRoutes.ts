@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { AuthService } from "../services/authService";
-import { AuthResponse, RegisterRequest, LoginRequest, GoogleAuthRequest, GithubAuthRequest, VerifyTokenRequest, UpdateProfileRequest, UpdatePasswordRequest } from "../shared/types/auth";
+import { AuthResponse, RegisterRequest, LoginRequest, GoogleAuthRequest, GithubAuthRequest, VerifyTokenRequest, UpdateProfileRequest, UpdatePasswordRequest, PasswordResetRequest } from "../shared/types/auth";
 import { authenticateToken, AuthenticatedRequest } from "../shared/middleware/authMiddleware";
 import { z } from "zod";
 
@@ -39,6 +39,10 @@ const updateProfileSchema = z.object({
 const updatePasswordSchema = z.object({
   currentPassword: z.string().min(1, "Current password is required"),
   newPassword: z.string().min(6, "New password must be at least 6 characters")
+});
+
+const passwordResetSchema = z.object({
+  email: z.string().email("Invalid email format")
 });
 
 /**
@@ -432,6 +436,67 @@ router.put("/password", authenticateToken, async (req: AuthenticatedRequest, res
     }
 
     res.status(400).json({
+      success: false,
+      error: errorMessage
+    });
+  }
+});
+
+/**
+ * @route POST /auth/password/reset
+ * @desc Send password reset email link
+ * @access Public
+ * @note Only works for users registered with email/password (not Google/GitHub)
+ */
+router.post("/password/reset", async (req: Request<{}, AuthResponse, PasswordResetRequest>, res: Response<AuthResponse>) => {
+  try {
+    const validationResult = passwordResetSchema.safeParse(req.body);
+
+    if (!validationResult.success) {
+      res.status(400).json({
+        success: false,
+        error: validationResult.error.errors[0]?.message || "Invalid request data"
+      });
+      return;
+    }
+
+    const { email } = validationResult.data;
+
+    // Generate password reset link
+    // Note: In production, this link should be sent via email service
+    const resetLink = await AuthService.sendPasswordResetEmail(email);
+
+    // For security, we don't return the link directly in production
+    // Instead, we would send it via email and return success
+    // For now, we return success (in production, remove resetLink from response)
+    res.status(200).json({
+      success: true,
+      // Remove this in production - link should only be sent via email
+      data: process.env.NODE_ENV === "development" ? { resetLink } : undefined
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to send password reset email";
+    
+    // Check if user not found
+    if (errorMessage.includes("user-not-found")) {
+      // Don't reveal if user exists or not for security
+      res.status(200).json({
+        success: true
+      });
+      return;
+    }
+
+    // Check if it's a third-party user error
+    if (errorMessage.includes("Password reset is not available") || 
+        errorMessage.includes("does not have a password")) {
+      res.status(403).json({
+        success: false,
+        error: errorMessage
+      });
+      return;
+    }
+
+    res.status(500).json({
       success: false,
       error: errorMessage
     });

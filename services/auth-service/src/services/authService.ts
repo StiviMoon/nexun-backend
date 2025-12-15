@@ -350,5 +350,62 @@ export class AuthService {
       throw new Error("Failed to delete user account");
     }
   }
+
+  /**
+   * Sends a password reset email link to the user
+   * Only works for users registered with email/password (not Google/GitHub)
+   * @param email - User email address
+   * @returns Password reset link
+   * @throws Error if user not found, is a Google/GitHub user, or generation fails
+   */
+  static async sendPasswordResetEmail(email: string): Promise<string> {
+    try {
+      // Get user by email
+      const userRecord = await auth.getUserByEmail(email);
+
+      // Check if user is authenticated with Google or GitHub
+      const providerIds = userRecord.providerData.map((provider: admin.auth.UserInfo) => provider.providerId);
+      const isThirdPartyUser = providerIds.some((providerId: string) => 
+        providerId === "google.com" || providerId === "github.com"
+      );
+
+      if (isThirdPartyUser) {
+        throw new Error("Password reset is not available for Google or GitHub authenticated users");
+      }
+
+      // Check if user has password provider (email/password)
+      const hasPasswordProvider = providerIds.includes("password");
+      if (!hasPasswordProvider) {
+        throw new Error("User does not have a password set. Please use your social login provider.");
+      }
+
+      // Generate password reset link
+      // Note: This generates a link that can be used to reset the password
+      // In production, you would send this link via email service
+      const actionCodeSettings = {
+        // URL you want to redirect back to after password reset
+        url: process.env.PASSWORD_RESET_REDIRECT_URL || "http://localhost:3000/recuperar2",
+        handleCodeInApp: false
+      };
+
+      const resetLink = await auth.generatePasswordResetLink(email, actionCodeSettings);
+
+      return resetLink;
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message.includes("user-not-found")) {
+          throw new Error("auth/user-not-found");
+        }
+        if (error.message.includes("Password reset is not available")) {
+          throw error;
+        }
+        if (error.message.includes("does not have a password")) {
+          throw error;
+        }
+        throw error;
+      }
+      throw new Error("Failed to generate password reset link");
+    }
+  }
 }
 
